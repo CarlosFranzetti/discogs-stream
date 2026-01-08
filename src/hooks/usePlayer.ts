@@ -3,8 +3,13 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import { Track } from '@/types/track';
 import { mockTracks, shuffleTracks } from '@/data/mockTracks';
 
-export function usePlayer() {
-  const [playlist, setPlaylist] = useState<Track[]>(() => shuffleTracks(mockTracks));
+export function usePlayer(initialTracks?: Track[]) {
+  const [playlist, setPlaylist] = useState<Track[]>(() => {
+    if (initialTracks && initialTracks.length > 0) {
+      return shuffleTracks(initialTracks);
+    }
+    return shuffleTracks(mockTracks);
+  });
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(true);
   const [currentTime, setCurrentTime] = useState(0);
@@ -16,6 +21,14 @@ export function usePlayer() {
   const intervalRef = useRef<number | null>(null);
 
   const currentTrack = playlist[currentIndex];
+
+  // Update playlist when initialTracks changes
+  useEffect(() => {
+    if (initialTracks && initialTracks.length > 0) {
+      setPlaylist(shuffleTracks(initialTracks));
+      setCurrentIndex(0);
+    }
+  }, [initialTracks]);
 
   const updateTime = useCallback(() => {
     if (playerRef.current && typeof playerRef.current.getCurrentTime === 'function') {
@@ -145,5 +158,6 @@ export function usePlayer() {
     toggleVideo,
     setCurrentTime,
     setIsPlaying,
+    setPlaylist,
   };
 }
