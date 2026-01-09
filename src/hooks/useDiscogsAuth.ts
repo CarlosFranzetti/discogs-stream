@@ -26,12 +26,6 @@ export function useDiscogsAuth() {
     try {
       const callbackUrl = `${window.location.origin}/?discogs_callback=true`;
       
-      const { data, error: fnError } = await supabase.functions.invoke('discogs-auth', {
-        body: null,
-        headers: {},
-      });
-
-      // Use GET with query params
       const response = await fetch(
         `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/discogs-auth?action=request_token&callback_url=${encodeURIComponent(callbackUrl)}`,
         {
