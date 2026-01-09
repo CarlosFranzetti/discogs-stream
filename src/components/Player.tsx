@@ -15,7 +15,38 @@ import { PlaylistSidebar } from './PlaylistSidebar';
 import { DiscogsConnect } from './DiscogsConnect';
 import { SourceFilters, SourceType } from './SourceFilters';
 import { Track } from '@/types/track';
-import { Loader2, Play, User, Library } from 'lucide-react';
+import { Loader2, Play, User, Library, Disc, Heart } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
+
+// Simple toggle component for sources
+function SourceToggle({ 
+  label, 
+  icon, 
+  isActive, 
+  onToggle 
+}: { 
+  label: string; 
+  icon: React.ReactNode; 
+  isActive: boolean; 
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      onClick={onToggle}
+      className={`flex items-center gap-2 px-4 py-3 rounded-lg border transition-colors ${
+        isActive 
+          ? 'bg-primary text-primary-foreground border-primary' 
+          : 'bg-muted/50 text-muted-foreground border-border hover:bg-muted'
+      }`}
+    >
+      {icon}
+      <span className="font-medium">{label}</span>
+      <div className={`w-8 h-5 rounded-full relative ml-2 transition-colors ${isActive ? 'bg-primary-foreground/30' : 'bg-border'}`}>
+        <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-background transition-all ${isActive ? 'left-3.5' : 'left-0.5'}`} />
+      </div>
+    </button>
+  );
+}
 import { Button } from '@/components/ui/button';
 
 export function Player() {
@@ -268,21 +299,65 @@ export function Player() {
     );
   }
 
-  if (!currentTrack) {
+  // Title screen: show when no tracks loaded or not authenticated
+  if (!hasLoadedDiscogs || discogsTracks.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center h-screen bg-background gap-6">
+      <div className="flex flex-col items-center justify-center h-screen bg-background gap-8 p-6">
         <div className="text-center space-y-2">
-          <h1 className="text-3xl font-display font-bold text-foreground">Discogs Radio</h1>
-          <p className="text-muted-foreground">Connect your Discogs account to start listening</p>
+          <h1 className="text-4xl font-display font-bold text-foreground">Discogs Radio</h1>
+          <p className="text-muted-foreground">Stream music from your Discogs collection</p>
         </div>
-        <DiscogsConnect
-          isAuthenticated={isAuthenticated}
-          isAuthenticating={isAuthenticating}
-          username={credentials?.username}
-          error={authError || dataError}
-          onConnect={startAuth}
-          onDisconnect={logout}
-        />
+
+        {/* Discogs Connection */}
+        <div className="w-full max-w-sm">
+          <DiscogsConnect
+            isAuthenticated={isAuthenticated}
+            isAuthenticating={isAuthenticating}
+            username={credentials?.username}
+            error={authError || dataError}
+            onConnect={startAuth}
+            onDisconnect={logout}
+          />
+        </div>
+
+        {/* Source Toggles - only show when connected */}
+        {isAuthenticated && (
+          <div className="flex flex-col items-center gap-3">
+            <p className="text-sm text-muted-foreground">Select sources to include:</p>
+            <div className="flex gap-3">
+              <SourceToggle
+                label="Collection"
+                icon={<Disc className="w-4 h-4" />}
+                isActive={activeSources.includes('collection')}
+                onToggle={() => handleToggleSource('collection')}
+              />
+              <SourceToggle
+                label="Wantlist"
+                icon={<Heart className="w-4 h-4" />}
+                isActive={activeSources.includes('wantlist')}
+                onToggle={() => handleToggleSource('wantlist')}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* User Login */}
+        <div className="flex flex-col items-center gap-2">
+          {isUserLoggedIn ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <User className="w-4 h-4" />
+              <span>Signed in as {user?.email?.split('@')[0]}</span>
+              <Button variant="ghost" size="sm" onClick={() => signOut()}>
+                Sign out
+              </Button>
+            </div>
+          ) : (
+            <Button variant="outline" size="sm" onClick={() => navigate('/auth')} className="gap-2">
+              <User className="w-4 h-4" />
+              Sign in to save likes
+            </Button>
+          )}
+        </div>
       </div>
     );
   }
