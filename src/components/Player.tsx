@@ -31,6 +31,7 @@ export function Player() {
   const [hasLoadedDiscogs, setHasLoadedDiscogs] = useState(false);
   const [currentVideoId, setCurrentVideoId] = useState<string>('');
   const lastSearchedTrackId = useRef<string>('');
+  const fallbackAttemptedRef = useRef<Set<string>>(new Set());
   const [activeSources, setActiveSources] = useState<SourceType[]>(['collection', 'wantlist']);
   const [hasUserInteracted, setHasUserInteracted] = useState(false);
 
@@ -155,6 +156,38 @@ export function Player() {
     }
   };
 
+  const handlePlayerError = useCallback(
+    async (code: number) => {
+      if (!currentTrack) return;
+
+      // 150/101: embedding disabled / not allowed
+      if (code !== 150 && code !== 101) return;
+
+      // Avoid infinite loops per track
+      if (fallbackAttemptedRef.current.has(currentTrack.id)) {
+        console.warn('Embed blocked and fallback already attempted, skipping track:', currentTrack.title);
+        skipNext();
+        return;
+      }
+
+      fallbackAttemptedRef.current.add(currentTrack.id);
+      console.warn('Embed blocked (code', code, ') - searching for embeddable alternative for:', currentTrack.title);
+
+      const altId = await searchForVideo(currentTrack, { force: true, maxResults: 8 });
+
+      if (altId) {
+        setCurrentVideoId(altId);
+        setDiscogsTracks((prev) =>
+          prev.map((t) => (t.id === currentTrack.id ? { ...t, youtubeId: altId } : t))
+        );
+        return;
+      }
+
+      skipNext();
+    },
+    [currentTrack, searchForVideo, skipNext]
+  );
+
   // Show loading state when fetching Discogs data
   if (isAuthenticated && isLoadingData && discogsTracks.length === 0) {
     return (
@@ -227,6 +260,7 @@ export function Player() {
             showVideo={showVideo}
             playerRef={playerRef}
             onStateChange={handlePlayerStateChange}
+            onError={handlePlayerError}
             onReady={() => {}}
           />
           <AlbumArt
