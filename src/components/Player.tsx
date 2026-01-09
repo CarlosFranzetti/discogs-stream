@@ -299,8 +299,10 @@ export function Player() {
     );
   }
 
-  // Title screen: show when no tracks loaded or not authenticated
-  if (!hasLoadedDiscogs || discogsTracks.length === 0) {
+  // Title screen: show options to connect or start with demo
+  const showTitleScreen = !hasUserInteracted && !hasLoadedDiscogs;
+  
+  if (showTitleScreen) {
     return (
       <div className="flex flex-col items-center justify-center h-screen bg-background gap-8 p-6">
         <div className="text-center space-y-2">
@@ -340,6 +342,16 @@ export function Player() {
             </div>
           </div>
         )}
+
+        {/* Start Button */}
+        <Button 
+          size="lg" 
+          onClick={() => setHasUserInteracted(true)}
+          className="gap-2 px-8"
+        >
+          <Play className="w-5 h-5" />
+          Start Listening
+        </Button>
 
         {/* User Login */}
         <div className="flex flex-col items-center gap-2">
