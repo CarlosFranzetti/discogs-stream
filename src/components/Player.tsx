@@ -15,7 +15,7 @@ import { PlaylistSidebar } from './PlaylistSidebar';
 import { DiscogsConnect } from './DiscogsConnect';
 import { SourceFilters, SourceType } from './SourceFilters';
 import { Track } from '@/types/track';
-import { Loader2, Play, User } from 'lucide-react';
+import { Loader2, Play, User, Library } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 export function Player() {
@@ -44,12 +44,13 @@ export function Player() {
   } = useDiscogsAuth();
   
   const { isLoading: isLoadingData, error: dataError, fetchAllTracks } = useDiscogsData(credentials);
-  const { searchForVideo, isSearching } = useYouTubeSearch();
+  const { searchForVideo, isSearching, prefetchVideos } = useYouTubeSearch();
   const [discogsTracks, setDiscogsTracks] = useState<Track[]>([]);
   const [hasLoadedDiscogs, setHasLoadedDiscogs] = useState(false);
   const [currentVideoId, setCurrentVideoId] = useState<string>('');
   const lastSearchedTrackId = useRef<string>('');
   const fallbackAttemptedRef = useRef<Set<string>>(new Set());
+  const prefetchedRef = useRef<Set<string>>(new Set());
   const [activeSources, setActiveSources] = useState<SourceType[]>(['collection', 'wantlist']);
   const [hasUserInteracted, setHasUserInteracted] = useState(false);
 
@@ -147,27 +148,54 @@ export function Player() {
     if (currentTrack.youtubeId) {
       console.log('Using existing youtubeId:', currentTrack.youtubeId, 'for', currentTrack.title);
       setCurrentVideoId(currentTrack.youtubeId);
-      return;
+    } else {
+      // Search for the video
+      console.log('Searching for video:', currentTrack.artist, currentTrack.title);
+      searchForVideo(currentTrack).then((videoId) => {
+        if (videoId) {
+          console.log('Found video:', videoId);
+          setCurrentVideoId(videoId);
+          // Update the track in the playlist with the found videoId
+          setDiscogsTracks((prev) =>
+            prev.map((t) =>
+              t.id === currentTrack.id ? { ...t, youtubeId: videoId } : t
+            )
+          );
+        } else {
+          console.log('No video found for:', currentTrack.title, '- skipping');
+          setCurrentVideoId('');
+          // Skip to next track if no video found
+          skipNext();
+        }
+      });
     }
-    
-    // Search for the video
-    console.log('Searching for video:', currentTrack.artist, currentTrack.title);
-    searchForVideo(currentTrack).then((videoId) => {
-      if (videoId) {
-        console.log('Found video:', videoId);
-        setCurrentVideoId(videoId);
-        // Update the track in the playlist with the found videoId
+  }, [currentTrack, searchForVideo, skipNext]);
+
+  // Pre-fetch YouTube IDs for next 4 tracks in the queue
+  useEffect(() => {
+    if (!playlist.length || currentIndex < 0) return;
+
+    const upcomingTracks = playlist
+      .slice(currentIndex + 1, currentIndex + 5)
+      .filter((t) => !t.youtubeId && !prefetchedRef.current.has(t.id));
+
+    if (upcomingTracks.length === 0) return;
+
+    // Mark as being prefetched
+    upcomingTracks.forEach((t) => prefetchedRef.current.add(t.id));
+
+    console.log('Pre-fetching YouTube IDs for', upcomingTracks.length, 'upcoming tracks');
+    prefetchVideos(upcomingTracks).then((results) => {
+      if (results.size > 0) {
         setDiscogsTracks((prev) =>
-          prev.map((t) =>
-            t.id === currentTrack.id ? { ...t, youtubeId: videoId } : t
-          )
+          prev.map((t) => {
+            const videoId = results.get(t.id);
+            return videoId ? { ...t, youtubeId: videoId } : t;
+          })
         );
-      } else {
-        console.log('No video found for:', currentTrack.title);
-        setCurrentVideoId('');
       }
     });
-  }, [currentTrack, searchForVideo]);
+  }, [currentIndex, playlist, prefetchVideos]);
 
   const handlePlayerStateChange = (state: number) => {
     // YT.PlayerState.ENDED = 0
@@ -188,7 +216,21 @@ export function Player() {
     async (code: number) => {
       if (!currentTrack) return;
 
-      // 150/101: embedding disabled / not allowed
+      // Error codes:
+      // 2: Invalid parameter value
+      // 5: HTML5 player error
+      // 100: Video not found or removed
+      // 101/150: Embedding disabled / not allowed
+      console.warn('YouTube player error:', code, 'for track:', currentTrack.title);
+
+      // For 100 (not found) or 2/5 (invalid/player error), skip immediately
+      if (code === 100 || code === 2 || code === 5) {
+        console.warn('Video unavailable (code', code, '), skipping track:', currentTrack.title);
+        skipNext();
+        return;
+      }
+
+      // 150/101: embedding disabled / not allowed - try alternative
       if (code !== 150 && code !== 101) return;
 
       // Avoid infinite loops per track
@@ -335,6 +377,15 @@ export function Player() {
                   onDisconnect={logout}
                 />
               </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => navigate('/library')}
+                className="gap-1.5"
+              >
+                <Library className="w-4 h-4" />
+                <span className="hidden sm:inline">Library</span>
+              </Button>
               {isUserLoggedIn ? (
                 <Button variant="ghost" size="sm" onClick={() => signOut()} className="gap-1.5">
                   <User className="w-4 h-4" />
