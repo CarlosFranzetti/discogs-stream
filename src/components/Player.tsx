@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useMemo, useCallback } from 'react';
 import { usePlayer } from '@/hooks/usePlayer';
 import { useDiscogsAuth } from '@/hooks/useDiscogsAuth';
 import { useDiscogsData } from '@/hooks/useDiscogsData';
@@ -10,8 +10,10 @@ import { PlayerControls } from './PlayerControls';
 import { TrackInfo } from './TrackInfo';
 import { PlaylistSidebar } from './PlaylistSidebar';
 import { DiscogsConnect } from './DiscogsConnect';
+import { SourceFilters, SourceType } from './SourceFilters';
 import { Track } from '@/types/track';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Play } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 
 export function Player() {
   const { 
@@ -29,6 +31,35 @@ export function Player() {
   const [hasLoadedDiscogs, setHasLoadedDiscogs] = useState(false);
   const [currentVideoId, setCurrentVideoId] = useState<string>('');
   const lastSearchedTrackId = useRef<string>('');
+  const [activeSources, setActiveSources] = useState<SourceType[]>(['collection', 'wantlist']);
+  const [hasUserInteracted, setHasUserInteracted] = useState(false);
+
+  // Filter tracks by active sources
+  const filteredTracks = useMemo(() => {
+    return discogsTracks.filter(track => activeSources.includes(track.source));
+  }, [discogsTracks, activeSources]);
+
+  // Track counts per source
+  const trackCounts = useMemo(() => {
+    const counts: Record<SourceType, number> = { collection: 0, wantlist: 0, similar: 0 };
+    discogsTracks.forEach(track => {
+      if (track.source in counts) {
+        counts[track.source]++;
+      }
+    });
+    return counts;
+  }, [discogsTracks]);
+
+  const handleToggleSource = useCallback((source: SourceType) => {
+    setActiveSources(prev => {
+      if (prev.includes(source)) {
+        // Don't allow deselecting all sources
+        if (prev.length === 1) return prev;
+        return prev.filter(s => s !== source);
+      }
+      return [...prev, source];
+    });
+  }, []);
 
   const {
     playlist,
@@ -52,7 +83,7 @@ export function Player() {
     toggleVideo,
     setIsPlaying,
     setPlaylist,
-  } = usePlayer(discogsTracks);
+  } = usePlayer(filteredTracks);
 
   // Load Discogs tracks when authenticated
   useEffect(() => {
@@ -68,12 +99,12 @@ export function Player() {
     }
   }, [isAuthenticated, credentials, hasLoadedDiscogs, fetchAllTracks]);
 
-  // Update playlist when discogs tracks change
+  // Update playlist when filtered tracks change
   useEffect(() => {
-    if (discogsTracks.length > 0 && setPlaylist) {
-      setPlaylist(discogsTracks);
+    if (filteredTracks.length > 0 && setPlaylist) {
+      setPlaylist(filteredTracks);
     }
-  }, [discogsTracks, setPlaylist]);
+  }, [filteredTracks, setPlaylist]);
 
   // Auto-search for YouTube video when track changes
   useEffect(() => {
@@ -145,6 +176,36 @@ export function Player() {
     );
   }
 
+  // Show start button if user hasn't interacted yet (needed for autoplay)
+  if (!hasUserInteracted) {
+    return (
+      <div className="flex flex-col items-center justify-center h-screen bg-background gap-6">
+        <div className="text-center space-y-4">
+          <h1 className="text-3xl font-display font-bold text-foreground">Discogs Radio</h1>
+          <p className="text-muted-foreground">Ready to play from your collection</p>
+          <div className="flex items-center justify-center gap-4 text-sm text-muted-foreground">
+            <span>{trackCounts.collection} in collection</span>
+            <span>•</span>
+            <span>{trackCounts.wantlist} in wantlist</span>
+          </div>
+        </div>
+        <SourceFilters
+          activeSources={activeSources}
+          onToggleSource={handleToggleSource}
+          trackCounts={trackCounts}
+        />
+        <Button 
+          size="lg" 
+          onClick={() => setHasUserInteracted(true)}
+          className="gap-2 px-8"
+        >
+          <Play className="w-5 h-5" />
+          Start Listening
+        </Button>
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-screen bg-background overflow-hidden">
       {/* Main player area */}
@@ -188,17 +249,24 @@ export function Player() {
 
         {/* Controls area */}
         <div className="bg-card border-t border-border p-6 space-y-4">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between flex-wrap gap-4">
             <TrackInfo track={currentTrack} />
-            <div className="hidden md:block">
-              <DiscogsConnect
-                isAuthenticated={isAuthenticated}
-                isAuthenticating={isAuthenticating}
-                username={credentials?.username}
-                error={authError}
-                onConnect={startAuth}
-                onDisconnect={logout}
+            <div className="flex items-center gap-4">
+              <SourceFilters
+                activeSources={activeSources}
+                onToggleSource={handleToggleSource}
+                trackCounts={trackCounts}
               />
+              <div className="hidden md:block">
+                <DiscogsConnect
+                  isAuthenticated={isAuthenticated}
+                  isAuthenticating={isAuthenticating}
+                  username={credentials?.username}
+                  error={authError}
+                  onConnect={startAuth}
+                  onDisconnect={logout}
+                />
+              </div>
             </div>
           </div>
           
