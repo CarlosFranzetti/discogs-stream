@@ -237,7 +237,13 @@ export function Player() {
         />
         <Button 
           size="lg" 
-          onClick={() => setHasUserInteracted(true)}
+          onClick={() => {
+            setHasUserInteracted(true);
+            // Trigger play after a small delay to allow YouTube player to initialize
+            setTimeout(() => {
+              playerRef.current?.playVideo();
+            }, 500);
+          }}
           className="gap-2 px-8"
         >
           <Play className="w-5 h-5" />
@@ -256,16 +262,16 @@ export function Player() {
           <AlbumArt
             track={currentTrack}
             isPlaying={isPlaying}
-            showVideo={showVideo}
-            onClick={toggleVideo}
+            showVideo={false}
+            onClick={togglePlay}
           />
 
-          {/* YouTube player as PIP in corner or fullscreen */}
+          {/* YouTube player as PIP in corner */}
           <YouTubePlayer
             videoId={currentVideoId || currentTrack.youtubeId}
             searchQuery={!currentVideoId && !currentTrack.youtubeId ? `${currentTrack.artist} ${currentTrack.title}` : undefined}
             isPlaying={isPlaying}
-            showVideo={showVideo}
+            showVideo={false}
             playerRef={playerRef}
             onStateChange={handlePlayerStateChange}
             onError={handlePlayerError}
@@ -279,20 +285,10 @@ export function Player() {
               <span className="text-xs text-muted-foreground">Finding video...</span>
             </div>
           )}
-
-          {/* Video toggle hint when showing video */}
-          {showVideo && (
-            <button
-              onClick={toggleVideo}
-              className="absolute bottom-3 left-3 z-30 bg-background/80 backdrop-blur-sm rounded-full px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
-            >
-              Show album art
-            </button>
-          )}
         </div>
 
-        {/* Controls area - more compact */}
-        <div className="bg-card border-t border-border p-3 sm:p-4 space-y-3 flex-1 flex flex-col justify-between">
+        {/* Controls area - more compact with proper spacing */}
+        <div className="bg-card border-t border-border p-4 sm:p-5 flex flex-col gap-4">
           <div className="flex items-center justify-between flex-wrap gap-2">
             <TrackInfo track={currentTrack} />
             <div className="flex items-center gap-2 flex-wrap">
@@ -314,7 +310,7 @@ export function Player() {
             </div>
           </div>
           
-          <div className="max-w-md mx-auto w-full">
+          <div className="max-w-md mx-auto w-full py-2">
             <Timeline
               currentTime={currentTime}
               duration={currentTrack.duration}
