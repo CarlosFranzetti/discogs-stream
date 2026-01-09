@@ -1,12 +1,19 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { Track } from '@/types/track';
 
-// YouTube IFrame API for searching videos
-// Since we don't have a YouTube API key, we'll use the IFrame search embedding approach
-// For production, you'd want to add YouTube Data API key
+interface YouTubeVideo {
+  videoId: string;
+  title: string;
+  channelTitle: string;
+  thumbnail: string;
+}
+
+// Cache for YouTube video IDs to avoid repeated API calls
+const videoCache = new Map<string, string>();
 
 export function useYouTubeSearch() {
   const [isSearching, setIsSearching] = useState(false);
+  const pendingSearches = useRef<Map<string, Promise<string>>>(new Map());
 
   const searchForVideo = useCallback(async (track: Track): Promise<string> => {
     // If track already has a youtubeId, return it
@@ -14,27 +21,66 @@ export function useYouTubeSearch() {
       return track.youtubeId;
     }
 
+    // Create a cache key from artist + title
+    const cacheKey = `${track.artist}-${track.title}`.toLowerCase();
+    
+    // Check cache first
+    if (videoCache.has(cacheKey)) {
+      return videoCache.get(cacheKey)!;
+    }
+
+    // Check if there's already a pending search for this track
+    if (pendingSearches.current.has(cacheKey)) {
+      return pendingSearches.current.get(cacheKey)!;
+    }
+
     setIsSearching(true);
     
-    try {
-      // Construct search query
-      const searchQuery = `${track.artist} ${track.title} full album`.trim();
-      
-      // For a proper implementation, you would call YouTube Data API here
-      // Since we don't have an API key, we'll use a workaround:
-      // Generate a search URL that can be used with YouTube's oembed or
-      // rely on the user's YouTube embeds
-      
-      // For demo purposes, we'll use known video IDs based on common patterns
-      // In production, integrate with YouTube Data API v3
-      
-      // Return empty string - the YouTubePlayer component will need to handle search
-      console.log('Searching YouTube for:', searchQuery);
-      
-      return '';
-    } finally {
-      setIsSearching(false);
-    }
+    // Create the search promise
+    const searchPromise = (async () => {
+      try {
+        const query = `${track.artist} ${track.title}`;
+        
+        const response = await fetch(
+          `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/youtube-search`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ query, maxResults: 1 }),
+          }
+        );
+
+        if (!response.ok) {
+          console.error('YouTube search failed:', await response.text());
+          return '';
+        }
+
+        const data = await response.json();
+        const videos: YouTubeVideo[] = data.videos || [];
+        
+        if (videos.length > 0) {
+          const videoId = videos[0].videoId;
+          videoCache.set(cacheKey, videoId);
+          console.log(`Found YouTube video for "${track.title}": ${videoId}`);
+          return videoId;
+        }
+        
+        // Cache empty result to avoid repeated failed searches
+        videoCache.set(cacheKey, '');
+        return '';
+      } catch (error) {
+        console.error('YouTube search error:', error);
+        return '';
+      } finally {
+        setIsSearching(false);
+        pendingSearches.current.delete(cacheKey);
+      }
+    })();
+
+    pendingSearches.current.set(cacheKey, searchPromise);
+    return searchPromise;
   }, []);
 
   const getSearchUrl = useCallback((track: Track): string => {
@@ -42,9 +88,29 @@ export function useYouTubeSearch() {
     return `https://www.youtube.com/results?search_query=${query}`;
   }, []);
 
+  const prefetchVideos = useCallback(async (tracks: Track[]): Promise<Map<string, string>> => {
+    const results = new Map<string, string>();
+    
+    // Search for videos in parallel, but limit concurrency
+    const batchSize = 5;
+    for (let i = 0; i < tracks.length; i += batchSize) {
+      const batch = tracks.slice(i, i + batchSize);
+      const promises = batch.map(async (track) => {
+        const videoId = await searchForVideo(track);
+        if (videoId) {
+          results.set(track.id, videoId);
+        }
+      });
+      await Promise.all(promises);
+    }
+    
+    return results;
+  }, [searchForVideo]);
+
   return {
     isSearching,
     searchForVideo,
     getSearchUrl,
+    prefetchVideos,
   };
 }

@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { usePlayer } from '@/hooks/usePlayer';
 import { useDiscogsAuth } from '@/hooks/useDiscogsAuth';
 import { useDiscogsData } from '@/hooks/useDiscogsData';
+import { useYouTubeSearch } from '@/hooks/useYouTubeSearch';
 import { YouTubePlayer } from './YouTubePlayer';
 import { AlbumArt } from './AlbumArt';
 import { Timeline } from './Timeline';
@@ -23,8 +24,11 @@ export function Player() {
   } = useDiscogsAuth();
   
   const { isLoading: isLoadingData, error: dataError, fetchAllTracks } = useDiscogsData(credentials);
+  const { searchForVideo, isSearching } = useYouTubeSearch();
   const [discogsTracks, setDiscogsTracks] = useState<Track[]>([]);
   const [hasLoadedDiscogs, setHasLoadedDiscogs] = useState(false);
+  const [currentVideoId, setCurrentVideoId] = useState<string>('');
+  const lastSearchedTrackId = useRef<string>('');
 
   const {
     playlist,
@@ -70,6 +74,32 @@ export function Player() {
       setPlaylist(discogsTracks);
     }
   }, [discogsTracks, setPlaylist]);
+
+  // Auto-search for YouTube video when track changes
+  useEffect(() => {
+    if (currentTrack && currentTrack.id !== lastSearchedTrackId.current) {
+      lastSearchedTrackId.current = currentTrack.id;
+      
+      if (currentTrack.youtubeId) {
+        setCurrentVideoId(currentTrack.youtubeId);
+      } else {
+        // Search for the video
+        searchForVideo(currentTrack).then((videoId) => {
+          if (videoId) {
+            setCurrentVideoId(videoId);
+            // Update the track in the playlist with the found videoId
+            setDiscogsTracks((prev) =>
+              prev.map((t) =>
+                t.id === currentTrack.id ? { ...t, youtubeId: videoId } : t
+              )
+            );
+          } else {
+            setCurrentVideoId('');
+          }
+        });
+      }
+    }
+  }, [currentTrack, searchForVideo]);
 
   const handlePlayerStateChange = (state: number) => {
     // YT.PlayerState.ENDED = 0
@@ -122,8 +152,8 @@ export function Player() {
         {/* Album art / Video area */}
         <div className="flex-1 relative overflow-hidden bg-gradient-to-b from-card to-background">
           <YouTubePlayer
-            videoId={currentTrack.youtubeId}
-            searchQuery={!currentTrack.youtubeId ? `${currentTrack.artist} ${currentTrack.title}` : undefined}
+            videoId={currentVideoId || currentTrack.youtubeId}
+            searchQuery={!currentVideoId && !currentTrack.youtubeId ? `${currentTrack.artist} ${currentTrack.title}` : undefined}
             isPlaying={isPlaying}
             showVideo={showVideo}
             playerRef={playerRef}
@@ -136,6 +166,14 @@ export function Player() {
             showVideo={showVideo}
             onClick={toggleVideo}
           />
+
+          {/* YouTube search indicator */}
+          {isSearching && (
+            <div className="absolute top-4 left-4 z-20 flex items-center gap-2 bg-background/80 backdrop-blur-sm rounded-full px-3 py-1.5">
+              <Loader2 className="w-4 h-4 animate-spin text-primary" />
+              <span className="text-xs text-muted-foreground">Finding video...</span>
+            </div>
+          )}
 
           {/* Video toggle hint when showing video */}
           {showVideo && (
