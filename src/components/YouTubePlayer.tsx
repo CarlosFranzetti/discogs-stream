@@ -127,12 +127,13 @@ export function YouTubePlayer({
     }
   }, [isPlaying]);
 
+  // PIP mode: small window in corner; fullscreen when showVideo is true
+  const pipClass = showVideo
+    ? 'absolute inset-0 z-10'
+    : 'absolute bottom-4 right-4 w-40 h-24 z-20 rounded-lg overflow-hidden shadow-lg border border-border';
+
   return (
-    <div
-      className={`absolute inset-0 transition-opacity duration-500 ${
-        showVideo ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'
-      }`}
-    >
+    <div className={pipClass}>
       <div ref={containerRef} className="w-full h-full" />
       
       {/* Show search link when no video ID */}

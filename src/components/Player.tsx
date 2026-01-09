@@ -250,9 +250,17 @@ export function Player() {
   return (
     <div className="flex h-screen bg-background overflow-hidden">
       {/* Main player area */}
-      <div className="flex-1 flex flex-col">
-        {/* Album art / Video area */}
-        <div className="flex-1 relative overflow-hidden bg-gradient-to-b from-card to-background">
+      <div className="flex-1 flex flex-col min-w-0">
+        {/* Album art / Video area - compact height */}
+        <div className="relative flex-shrink-0 h-72 sm:h-80 md:h-96 bg-gradient-to-b from-card to-background flex items-center justify-center">
+          <AlbumArt
+            track={currentTrack}
+            isPlaying={isPlaying}
+            showVideo={showVideo}
+            onClick={toggleVideo}
+          />
+
+          {/* YouTube player as PIP in corner or fullscreen */}
           <YouTubePlayer
             videoId={currentVideoId || currentTrack.youtubeId}
             searchQuery={!currentVideoId && !currentTrack.youtubeId ? `${currentTrack.artist} ${currentTrack.title}` : undefined}
@@ -263,17 +271,11 @@ export function Player() {
             onError={handlePlayerError}
             onReady={() => {}}
           />
-          <AlbumArt
-            track={currentTrack}
-            isPlaying={isPlaying}
-            showVideo={showVideo}
-            onClick={toggleVideo}
-          />
 
           {/* YouTube search indicator */}
           {isSearching && (
-            <div className="absolute top-4 left-4 z-20 flex items-center gap-2 bg-background/80 backdrop-blur-sm rounded-full px-3 py-1.5">
-              <Loader2 className="w-4 h-4 animate-spin text-primary" />
+            <div className="absolute top-3 left-3 z-30 flex items-center gap-2 bg-background/80 backdrop-blur-sm rounded-full px-2.5 py-1">
+              <Loader2 className="w-3 h-3 animate-spin text-primary" />
               <span className="text-xs text-muted-foreground">Finding video...</span>
             </div>
           )}
@@ -282,24 +284,24 @@ export function Player() {
           {showVideo && (
             <button
               onClick={toggleVideo}
-              className="absolute bottom-4 right-4 z-20 bg-background/80 backdrop-blur-sm rounded-full px-4 py-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+              className="absolute bottom-3 left-3 z-30 bg-background/80 backdrop-blur-sm rounded-full px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
             >
               Show album art
             </button>
           )}
         </div>
 
-        {/* Controls area */}
-        <div className="bg-card border-t border-border p-6 space-y-4">
-          <div className="flex items-center justify-between flex-wrap gap-4">
+        {/* Controls area - more compact */}
+        <div className="bg-card border-t border-border p-3 sm:p-4 space-y-3 flex-1 flex flex-col justify-between">
+          <div className="flex items-center justify-between flex-wrap gap-2">
             <TrackInfo track={currentTrack} />
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2 flex-wrap">
               <SourceFilters
                 activeSources={activeSources}
                 onToggleSource={handleToggleSource}
                 trackCounts={trackCounts}
               />
-              <div className="hidden md:block">
+              <div className="hidden lg:block">
                 <DiscogsConnect
                   isAuthenticated={isAuthenticated}
                   isAuthenticating={isAuthenticating}
@@ -312,7 +314,7 @@ export function Player() {
             </div>
           </div>
           
-          <div className="max-w-xl mx-auto w-full">
+          <div className="max-w-md mx-auto w-full">
             <Timeline
               currentTime={currentTime}
               duration={currentTrack.duration}
@@ -335,8 +337,8 @@ export function Player() {
         </div>
       </div>
 
-      {/* Playlist sidebar */}
-      <div className="hidden md:block w-80 lg:w-96">
+      {/* Playlist sidebar - narrower */}
+      <div className="hidden md:block w-64 lg:w-80 flex-shrink-0">
         <PlaylistSidebar
           playlist={playlist}
           currentIndex={currentIndex}
