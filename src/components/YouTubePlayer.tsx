@@ -46,6 +46,8 @@ export function YouTubePlayer({
       if (isInitialized.current || !containerRef.current) return;
       isInitialized.current = true;
 
+      console.log('Initializing YouTube player with videoId:', effectiveVideoId);
+      
       // If we have a videoId, use it; otherwise use search query in the player
       const playerOptions: YT.PlayerOptions = {
         height: '100%',
@@ -61,8 +63,21 @@ export function YouTubePlayer({
           playsinline: 1,
         },
         events: {
-          onReady: () => onReady(),
-          onStateChange: (event) => onStateChange(event.data),
+          onReady: (event) => {
+            console.log('YouTube player ready');
+            onReady();
+            // Auto-play when ready
+            if (effectiveVideoId) {
+              event.target.playVideo();
+            }
+          },
+          onStateChange: (event) => {
+            console.log('YouTube player state changed:', event.data);
+            onStateChange(event.data);
+          },
+          onError: (event) => {
+            console.error('YouTube player error:', event.data);
+          },
         },
       };
 
@@ -84,26 +99,20 @@ export function YouTubePlayer({
 
   // Handle video changes
   useEffect(() => {
-    if (!playerRef.current) return;
+    if (!playerRef.current) {
+      console.log('Player not ready yet, videoId:', videoId);
+      return;
+    }
 
-    if (videoId) {
+    if (videoId && videoId !== currentVideoId) {
+      console.log('Loading new video:', videoId);
       // Direct video ID provided
       if (typeof playerRef.current.loadVideoById === 'function') {
         playerRef.current.loadVideoById(videoId);
         setCurrentVideoId(videoId);
       }
-    } else if (searchQuery) {
-      // Search for video using YouTube's search feature
-      // YouTube IFrame API doesn't directly support search, so we use a workaround
-      // We'll load a video by searching - this uses YouTube's internal search
-      // For now, we'll show a placeholder and let user know
-      // In production, you'd use YouTube Data API to search first
-      console.log('Searching YouTube for:', searchQuery);
-      
-      // Unfortunately, IFrame API doesn't support direct search
-      // We'll need to handle this differently - perhaps show a link to search
     }
-  }, [videoId, searchQuery]);
+  }, [videoId, currentVideoId]);
 
   useEffect(() => {
     if (!playerRef.current) return;

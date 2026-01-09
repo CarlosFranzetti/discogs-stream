@@ -108,28 +108,36 @@ export function Player() {
 
   // Auto-search for YouTube video when track changes
   useEffect(() => {
-    if (currentTrack && currentTrack.id !== lastSearchedTrackId.current) {
-      lastSearchedTrackId.current = currentTrack.id;
-      
-      if (currentTrack.youtubeId) {
-        setCurrentVideoId(currentTrack.youtubeId);
-      } else {
-        // Search for the video
-        searchForVideo(currentTrack).then((videoId) => {
-          if (videoId) {
-            setCurrentVideoId(videoId);
-            // Update the track in the playlist with the found videoId
-            setDiscogsTracks((prev) =>
-              prev.map((t) =>
-                t.id === currentTrack.id ? { ...t, youtubeId: videoId } : t
-              )
-            );
-          } else {
-            setCurrentVideoId('');
-          }
-        });
-      }
+    if (!currentTrack) return;
+    
+    // If this track was already searched, skip
+    if (currentTrack.id === lastSearchedTrackId.current) return;
+    lastSearchedTrackId.current = currentTrack.id;
+    
+    // If track already has a youtubeId, use it immediately
+    if (currentTrack.youtubeId) {
+      console.log('Using existing youtubeId:', currentTrack.youtubeId, 'for', currentTrack.title);
+      setCurrentVideoId(currentTrack.youtubeId);
+      return;
     }
+    
+    // Search for the video
+    console.log('Searching for video:', currentTrack.artist, currentTrack.title);
+    searchForVideo(currentTrack).then((videoId) => {
+      if (videoId) {
+        console.log('Found video:', videoId);
+        setCurrentVideoId(videoId);
+        // Update the track in the playlist with the found videoId
+        setDiscogsTracks((prev) =>
+          prev.map((t) =>
+            t.id === currentTrack.id ? { ...t, youtubeId: videoId } : t
+          )
+        );
+      } else {
+        console.log('No video found for:', currentTrack.title);
+        setCurrentVideoId('');
+      }
+    });
   }, [currentTrack, searchForVideo]);
 
   const handlePlayerStateChange = (state: number) => {
