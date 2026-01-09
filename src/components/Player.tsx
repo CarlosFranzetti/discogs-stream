@@ -310,11 +310,25 @@ export function Player() {
   }
 
   // Title screen: show options to connect or start with demo
-  const showTitleScreen = !hasUserInteracted && !hasLoadedDiscogs;
+  const showTitleScreen = !hasUserInteracted;
   
   if (showTitleScreen) {
     return (
-      <div className="flex flex-col items-center justify-center h-screen bg-background gap-8 p-6">
+      <div className="flex flex-col items-center justify-center h-screen bg-background gap-8 p-6 relative">
+        {/* Hidden YouTube player - preloaded for instant playback */}
+        <div className="absolute opacity-0 pointer-events-none" style={{ width: 1, height: 1, overflow: 'hidden' }}>
+          <YouTubePlayer
+            videoId={currentVideoId || currentTrack?.youtubeId || ''}
+            searchQuery={!currentVideoId && !currentTrack?.youtubeId && currentTrack ? `${currentTrack.artist} ${currentTrack.title}` : undefined}
+            isPlaying={false}
+            showVideo={false}
+            playerRef={playerRef}
+            onStateChange={handlePlayerStateChange}
+            onError={handlePlayerError}
+            onReady={() => {}}
+          />
+        </div>
+
         <div className="text-center space-y-2">
           <h1 className="text-4xl font-display font-bold text-foreground">Discogs Radio</h1>
           <p className="text-muted-foreground">Stream music from your Discogs collection</p>
@@ -353,10 +367,16 @@ export function Player() {
           </div>
         )}
 
-        {/* Start Button */}
+        {/* Start Button - triggers hidden YouTube player */}
         <Button 
           size="lg" 
-          onClick={() => setHasUserInteracted(true)}
+          onClick={() => {
+            setHasUserInteracted(true);
+            // Start playback immediately via the preloaded player
+            setTimeout(() => {
+              playerRef.current?.playVideo();
+            }, 100);
+          }}
           className="gap-2 px-8"
         >
           <Play className="w-5 h-5" />
@@ -384,41 +404,6 @@ export function Player() {
     );
   }
 
-  // Show start button if user hasn't interacted yet (needed for autoplay)
-  if (!hasUserInteracted) {
-    return (
-      <div className="flex flex-col items-center justify-center h-screen bg-background gap-6">
-        <div className="text-center space-y-4">
-          <h1 className="text-3xl font-display font-bold text-foreground">Discogs Radio</h1>
-          <p className="text-muted-foreground">Ready to play from your collection</p>
-          <div className="flex items-center justify-center gap-4 text-sm text-muted-foreground">
-            <span>{trackCounts.collection} in collection</span>
-            <span>•</span>
-            <span>{trackCounts.wantlist} in wantlist</span>
-          </div>
-        </div>
-        <SourceFilters
-          activeSources={activeSources}
-          onToggleSource={handleToggleSource}
-          trackCounts={trackCounts}
-        />
-        <Button 
-          size="lg" 
-          onClick={() => {
-            setHasUserInteracted(true);
-            // Trigger play after a small delay to allow YouTube player to initialize
-            setTimeout(() => {
-              playerRef.current?.playVideo();
-            }, 500);
-          }}
-          className="gap-2 px-8"
-        >
-          <Play className="w-5 h-5" />
-          Start Listening
-        </Button>
-      </div>
-    );
-  }
 
   return (
     <div className="flex h-screen bg-background overflow-hidden">
