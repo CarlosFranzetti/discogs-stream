@@ -289,6 +289,16 @@ export function Player() {
     [currentTrack, searchForVideo, skipNext]
   );
 
+  // Show loading state when authenticating with Discogs
+  if (isAuthenticating) {
+    return (
+      <div className="flex flex-col items-center justify-center h-screen bg-background gap-4">
+        <Loader2 className="w-12 h-12 animate-spin text-primary" />
+        <p className="text-muted-foreground">Connecting to Discogs...</p>
+      </div>
+    );
+  }
+
   // Show loading state when fetching Discogs data
   if (isAuthenticated && isLoadingData && discogsTracks.length === 0) {
     return (
