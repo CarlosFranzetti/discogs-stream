@@ -8,6 +8,7 @@ interface YouTubePlayerProps {
   showVideo: boolean;
   playerRef: MutableRefObject<YT.Player | null>;
   onStateChange: (state: number) => void;
+  onError?: (code: number) => void;
   onReady: () => void;
 }
 
@@ -18,6 +19,7 @@ export function YouTubePlayer({
   showVideo,
   playerRef,
   onStateChange,
+  onError,
   onReady,
 }: YouTubePlayerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -77,6 +79,7 @@ export function YouTubePlayer({
           },
           onError: (event) => {
             console.error('YouTube player error:', event.data);
+            onError?.(event.data);
           },
         },
       };
