@@ -3,7 +3,7 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import { Track } from '@/types/track';
 import { mockTracks, shuffleTracks } from '@/data/mockTracks';
 
-export function usePlayer(initialTracks?: Track[]) {
+export function usePlayer(initialTracks?: Track[], dislikedTracks?: Track[]) {
   const [playlist, setPlaylist] = useState<Track[]>(() => {
     if (initialTracks && initialTracks.length > 0) {
       return shuffleTracks(initialTracks);
@@ -14,21 +14,21 @@ export function usePlayer(initialTracks?: Track[]) {
   const [isPlaying, setIsPlaying] = useState(true);
   const [currentTime, setCurrentTime] = useState(0);
   const [showVideo, setShowVideo] = useState(false);
-  const [likedTracks, setLikedTracks] = useState<Track[]>([]);
-  const [dislikedTracks, setDislikedTracks] = useState<Track[]>([]);
   
   const playerRef = useRef<YT.Player | null>(null);
   const intervalRef = useRef<number | null>(null);
 
   const currentTrack = playlist[currentIndex];
 
-  // Update playlist when initialTracks changes
+  // Update playlist when initialTracks changes, filtering out disliked tracks
   useEffect(() => {
     if (initialTracks && initialTracks.length > 0) {
-      setPlaylist(shuffleTracks(initialTracks));
+      const dislikedIds = new Set((dislikedTracks || []).map(t => t.id));
+      const filtered = initialTracks.filter(t => !dislikedIds.has(t.id));
+      setPlaylist(shuffleTracks(filtered));
       setCurrentIndex(0);
     }
-  }, [initialTracks]);
+  }, [initialTracks, dislikedTracks]);
 
   const updateTime = useCallback(() => {
     if (playerRef.current && typeof playerRef.current.getCurrentTime === 'function') {
@@ -91,33 +91,9 @@ export function usePlayer(initialTracks?: Track[]) {
     seekTo(newTime);
   }, [currentTime, seekTo]);
 
-  const likeTrack = useCallback(() => {
-    if (!currentTrack) return;
-    
-    // Remove from disliked if present
-    setDislikedTracks((prev) => prev.filter((t) => t.id !== currentTrack.id));
-    
-    // Toggle like
-    if (likedTracks.some((t) => t.id === currentTrack.id)) {
-      setLikedTracks((prev) => prev.filter((t) => t.id !== currentTrack.id));
-    } else {
-      setLikedTracks((prev) => [...prev, currentTrack]);
-    }
-  }, [currentTrack, likedTracks]);
-
-  const dislikeTrack = useCallback(() => {
-    if (!currentTrack) return;
-    
-    // Remove from liked if present
-    setLikedTracks((prev) => prev.filter((t) => t.id !== currentTrack.id));
-    
-    // Add to disliked and remove from playlist
-    if (!dislikedTracks.some((t) => t.id === currentTrack.id)) {
-      setDislikedTracks((prev) => [...prev, currentTrack]);
-      setPlaylist((prev) => prev.filter((t) => t.id !== currentTrack.id));
-      // Don't need to change index as the playlist shifts
-    }
-  }, [currentTrack, dislikedTracks]);
+  const removeFromPlaylist = useCallback((trackId: string) => {
+    setPlaylist((prev) => prev.filter((t) => t.id !== trackId));
+  }, []);
 
   const selectTrack = useCallback((index: number) => {
     setCurrentTime(0);
@@ -129,9 +105,6 @@ export function usePlayer(initialTracks?: Track[]) {
     setShowVideo((prev) => !prev);
   }, []);
 
-  const isLiked = currentTrack ? likedTracks.some((t) => t.id === currentTrack.id) : false;
-  const isDisliked = currentTrack ? dislikedTracks.some((t) => t.id === currentTrack.id) : false;
-
   return {
     playlist,
     currentTrack,
@@ -139,10 +112,6 @@ export function usePlayer(initialTracks?: Track[]) {
     isPlaying,
     currentTime,
     showVideo,
-    likedTracks,
-    dislikedTracks,
-    isLiked,
-    isDisliked,
     playerRef,
     play,
     pause,
@@ -152,12 +121,11 @@ export function usePlayer(initialTracks?: Track[]) {
     seekTo,
     skipForward,
     skipBackward,
-    likeTrack,
-    dislikeTrack,
     selectTrack,
     toggleVideo,
     setCurrentTime,
     setIsPlaying,
     setPlaylist,
+    removeFromPlaylist,
   };
 }

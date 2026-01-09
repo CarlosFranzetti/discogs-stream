@@ -1,8 +1,11 @@
 import { useEffect, useState, useRef, useMemo, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { usePlayer } from '@/hooks/usePlayer';
 import { useDiscogsAuth } from '@/hooks/useDiscogsAuth';
 import { useDiscogsData } from '@/hooks/useDiscogsData';
 import { useYouTubeSearch } from '@/hooks/useYouTubeSearch';
+import { useAuth } from '@/hooks/useAuth';
+import { useTrackPreferences } from '@/hooks/useTrackPreferences';
 import { YouTubePlayer } from './YouTubePlayer';
 import { AlbumArt } from './AlbumArt';
 import { Timeline } from './Timeline';
@@ -12,10 +15,25 @@ import { PlaylistSidebar } from './PlaylistSidebar';
 import { DiscogsConnect } from './DiscogsConnect';
 import { SourceFilters, SourceType } from './SourceFilters';
 import { Track } from '@/types/track';
-import { Loader2, Play } from 'lucide-react';
+import { Loader2, Play, User } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 export function Player() {
+  const navigate = useNavigate();
+  
+  // User auth
+  const { user, isAuthenticated: isUserLoggedIn, signOut } = useAuth();
+  
+  // Track preferences (persisted)
+  const {
+    likedTracks: persistedLikedTracks,
+    dislikedTracks: persistedDislikedTracks,
+    likeTrack: persistLike,
+    dislikeTrack: persistDislike,
+    isLiked: isTrackLiked,
+    isDisliked: isTrackDisliked,
+  } = useTrackPreferences(user?.id);
+
   const { 
     credentials, 
     isAuthenticated, 
@@ -69,8 +87,6 @@ export function Player() {
     isPlaying,
     currentTime,
     showVideo,
-    isLiked,
-    isDisliked,
     playerRef,
     togglePlay,
     skipNext,
@@ -78,13 +94,25 @@ export function Player() {
     seekTo,
     skipForward,
     skipBackward,
-    likeTrack,
-    dislikeTrack,
     selectTrack,
     toggleVideo,
     setIsPlaying,
     setPlaylist,
-  } = usePlayer(filteredTracks);
+    removeFromPlaylist,
+  } = usePlayer(filteredTracks, persistedDislikedTracks);
+
+  // Like/dislike handlers that persist to database
+  const handleLikeTrack = useCallback(() => {
+    if (!currentTrack) return;
+    persistLike(currentTrack);
+  }, [currentTrack, persistLike]);
+
+  const handleDislikeTrack = useCallback(() => {
+    if (!currentTrack) return;
+    persistDislike(currentTrack);
+    removeFromPlaylist(currentTrack.id);
+    skipNext();
+  }, [currentTrack, persistDislike, removeFromPlaylist, skipNext]);
 
   // Load Discogs tracks when authenticated
   useEffect(() => {
@@ -307,6 +335,17 @@ export function Player() {
                   onDisconnect={logout}
                 />
               </div>
+              {isUserLoggedIn ? (
+                <Button variant="ghost" size="sm" onClick={() => signOut()} className="gap-1.5">
+                  <User className="w-4 h-4" />
+                  <span className="hidden sm:inline">{user?.email?.split('@')[0]}</span>
+                </Button>
+              ) : (
+                <Button variant="outline" size="sm" onClick={() => navigate('/auth')} className="gap-1.5">
+                  <User className="w-4 h-4" />
+                  <span className="hidden sm:inline">Sign in</span>
+                </Button>
+              )}
             </div>
           </div>
           
@@ -320,15 +359,15 @@ export function Player() {
 
           <PlayerControls
             isPlaying={isPlaying}
-            isLiked={isLiked}
-            isDisliked={isDisliked}
+            isLiked={currentTrack ? isTrackLiked(currentTrack.id) : false}
+            isDisliked={currentTrack ? isTrackDisliked(currentTrack.id) : false}
             onTogglePlay={togglePlay}
             onSkipPrev={skipPrev}
             onSkipNext={skipNext}
             onSkipBackward={skipBackward}
             onSkipForward={skipForward}
-            onLike={likeTrack}
-            onDislike={dislikeTrack}
+            onLike={handleLikeTrack}
+            onDislike={handleDislikeTrack}
           />
         </div>
       </div>

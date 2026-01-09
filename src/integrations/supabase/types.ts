@@ -14,7 +14,48 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      track_preferences: {
+        Row: {
+          album: string | null
+          artist: string
+          cover_url: string | null
+          created_at: string
+          id: string
+          preference: string
+          source: string | null
+          title: string
+          track_id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          album?: string | null
+          artist: string
+          cover_url?: string | null
+          created_at?: string
+          id?: string
+          preference: string
+          source?: string | null
+          title: string
+          track_id: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          album?: string | null
+          artist?: string
+          cover_url?: string | null
+          created_at?: string
+          id?: string
+          preference?: string
+          source?: string | null
+          title?: string
+          track_id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
