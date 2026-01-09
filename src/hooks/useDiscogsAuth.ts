@@ -134,11 +134,13 @@ export function useDiscogsAuth() {
   // Check for OAuth callback on mount
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const isCallback = params.get('discogs_callback') === 'true';
     const oauthToken = params.get('oauth_token');
     const oauthVerifier = params.get('oauth_verifier');
+    const tokenSecret = sessionStorage.getItem('discogs_oauth_token_secret');
 
-    if (isCallback && oauthToken && oauthVerifier) {
+    // If we have oauth_token, oauth_verifier AND a stored token secret, this is a callback
+    if (oauthToken && oauthVerifier && tokenSecret) {
+      console.log('Discogs OAuth callback detected, processing...');
       handleCallback(oauthToken, oauthVerifier);
     }
   }, [handleCallback]);
