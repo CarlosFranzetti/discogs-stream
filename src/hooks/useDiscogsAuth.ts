@@ -42,11 +42,15 @@ export function useDiscogsAuth() {
 
       const tokenData = await response.json();
       
+      if (!tokenData.authorize_url) {
+        throw new Error('No authorization URL received');
+      }
+      
       // Store the token secret for later
       sessionStorage.setItem('discogs_oauth_token_secret', tokenData.oauth_token_secret);
       
-      // Redirect to Discogs authorization
-      window.location.href = tokenData.authorize_url;
+      // Redirect to Discogs authorization - use assign for better compatibility
+      window.location.assign(tokenData.authorize_url);
     } catch (err) {
       console.error('Auth error:', err);
       setError(err instanceof Error ? err.message : 'Authentication failed');
