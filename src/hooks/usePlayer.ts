@@ -69,11 +69,13 @@ export function usePlayer(initialTracks?: Track[], dislikedTracks?: Track[]) {
   const skipNext = useCallback(() => {
     setCurrentTime(0);
     setCurrentIndex((prev) => (prev + 1) % playlist.length);
+    setIsPlaying(true);
   }, [playlist.length]);
 
   const skipPrev = useCallback(() => {
     setCurrentTime(0);
     setCurrentIndex((prev) => (prev - 1 + playlist.length) % playlist.length);
+    setIsPlaying(true);
   }, [playlist.length]);
 
   const seekTo = useCallback((time: number) => {
