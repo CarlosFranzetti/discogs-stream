@@ -135,6 +135,9 @@ export function MobilePlayer() {
     }
   }, [isAuthenticated, credentials, hasLoadedDiscogs, fetchAllTracks]);
 
+  // Track if we've auto-started playback
+  const hasAutoStartedRef = useRef(false);
+
   // Verify tracks for YouTube availability in background
   useEffect(() => {
     if (discogsTracks.length === 0 || isVerifying) return;
@@ -176,13 +179,28 @@ export function MobilePlayer() {
         
         // Update verified tracks incrementally so UI shows progress
         setVerifiedTracks([...verified]);
+
+        // Auto-start playback and switch to player view when first track is ready
+        if (verified.length > 0 && !hasAutoStartedRef.current) {
+          hasAutoStartedRef.current = true;
+          const firstTrack = verified[0];
+          if (firstTrack.youtubeId) {
+            setCurrentVideoId(firstTrack.youtubeId);
+          }
+          setHasUserInteracted(true);
+          // Small delay to ensure player is mounted
+          setTimeout(() => {
+            playerRef.current?.playVideo();
+            setIsPlaying(true);
+          }, 300);
+        }
       }
       
       setIsVerifying(false);
     };
 
     verifyInBackground();
-  }, [discogsTracks, isTrackAvailable, searchForVideo, isQuotaExceeded, isVerifying]);
+  }, [discogsTracks, isTrackAvailable, searchForVideo, isQuotaExceeded, isVerifying, playerRef, setIsPlaying]);
 
   // Update playlist when filtered tracks change
   useEffect(() => {
