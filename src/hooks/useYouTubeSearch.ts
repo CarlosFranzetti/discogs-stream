@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef } from 'react';
 import { Track } from '@/types/track';
+import { supabase } from '@/integrations/supabase/client';
 
 interface YouTubeVideo {
   videoId: string;
@@ -15,7 +16,12 @@ const unavailableCache = new Set<string>();
 
 export function useYouTubeSearch() {
   const [isSearching, setIsSearching] = useState(false);
+  const [isQuotaExceeded, setIsQuotaExceeded] = useState(false);
   const pendingSearches = useRef<Map<string, Promise<string>>>(new Map());
+
+  const isQuotaError = useCallback((errText: string) => {
+    return /quota_exceeded|quotaExceeded|dailyLimitExceeded|exceeded.*quota/i.test(errText);
+  }, []);
 
   const getCacheKey = useCallback((track: Track): string => {
     return `${track.artist}-${track.title}`.toLowerCase();
@@ -56,6 +62,11 @@ export function useYouTubeSearch() {
         return pendingSearches.current.get(cacheKey)!;
       }
 
+      // If we've already hit YouTube quota this session, avoid hammering the backend.
+      if (!force && isQuotaExceeded) {
+        return '';
+      }
+
       setIsSearching(true);
 
       // Create the search promise
@@ -63,23 +74,22 @@ export function useYouTubeSearch() {
         try {
           const query = `${track.artist} ${track.title}`;
 
-          const response = await fetch(
-            `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/youtube-search`,
-            {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({ query, maxResults }),
-            }
-          );
+          const { data, error } = await supabase.functions.invoke('youtube-search', {
+            body: { query, maxResults },
+          });
 
-          if (!response.ok) {
-            console.error('YouTube search failed:', await response.text());
+          if (error) {
+            const status = (error as any)?.context?.status;
+            const msg = String(error.message || 'YouTube search failed');
+            console.error('YouTube search failed:', msg);
+
+            if (status === 429 || isQuotaError(msg)) {
+              setIsQuotaExceeded(true);
+            }
+            // Do NOT cache as unavailable when backend fails (prevents false negatives)
             return '';
           }
 
-          const data = await response.json();
           const videos: YouTubeVideo[] = data.videos || [];
 
           if (videos.length > 0) {
@@ -108,7 +118,7 @@ export function useYouTubeSearch() {
       }
       return searchPromise;
     },
-    [getCacheKey]
+    [getCacheKey, isQuotaError, isQuotaExceeded]
   );
 
   const getSearchUrl = useCallback((track: Track): string => {
@@ -183,6 +193,7 @@ export function useYouTubeSearch() {
 
   return {
     isSearching,
+    isQuotaExceeded,
     searchForVideo,
     getSearchUrl,
     prefetchVideos,
