@@ -11,7 +11,7 @@ export function usePlayer(initialTracks?: Track[], dislikedTracks?: Track[]) {
     return shuffleTracks(mockTracks);
   });
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [isPlaying, setIsPlaying] = useState(true);
+  const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [showVideo, setShowVideo] = useState(false);
   
