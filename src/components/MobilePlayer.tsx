@@ -50,6 +50,7 @@ export function MobilePlayer() {
     isTrackAvailable,
     markAsUnavailable,
     isQuotaExceeded,
+    clearCache,
   } = useYouTubeSearch();
   const [discogsTracks, setDiscogsTracks] = useState<Track[]>([]);
   const [verifiedTracks, setVerifiedTracks] = useState<Track[]>([]);
@@ -147,6 +148,9 @@ export function MobilePlayer() {
       setIsVerifying(true);
       setVerifyProgress({ verified: 0, total: discogsTracks.length });
       
+      // Clear cache on fresh load to get actual links
+      clearCache();
+      
       const batchSize = 5;
       const verified: Track[] = [];
       
@@ -155,12 +159,7 @@ export function MobilePlayer() {
         
         const results = await Promise.all(
           batch.map(async (track) => {
-            // Check if already known available
-            const status = isTrackAvailable(track);
-            if (status === true) return { track, available: true };
-            if (status === false) return { track, available: false };
-            
-            // Search for video
+            // Always search fresh since we cleared cache
             const videoId = await searchForVideo(track);
             return { 
               track: videoId ? { ...track, youtubeId: videoId } : track, 
@@ -200,7 +199,7 @@ export function MobilePlayer() {
     };
 
     verifyInBackground();
-  }, [discogsTracks, isTrackAvailable, searchForVideo, isQuotaExceeded, isVerifying, playerRef, setIsPlaying]);
+  }, [discogsTracks, searchForVideo, isQuotaExceeded, isVerifying, playerRef, setIsPlaying, clearCache]);
 
   // Update playlist when filtered tracks change
   useEffect(() => {

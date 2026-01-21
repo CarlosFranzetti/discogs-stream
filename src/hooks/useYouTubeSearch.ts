@@ -14,6 +14,12 @@ const videoCache = new Map<string, string>();
 // Cache for tracks we know have no YouTube video
 const unavailableCache = new Set<string>();
 
+// Function to clear all caches (for fresh loads)
+function clearAllCaches() {
+  videoCache.clear();
+  unavailableCache.clear();
+}
+
 export function useYouTubeSearch() {
   const [isSearching, setIsSearching] = useState(false);
   const [isQuotaExceeded, setIsQuotaExceeded] = useState(false);
@@ -191,6 +197,10 @@ export function useYouTubeSearch() {
     videoCache.set(cacheKey, '');
   }, [getCacheKey]);
 
+  const clearCache = useCallback(() => {
+    clearAllCaches();
+  }, []);
+
   return {
     isSearching,
     isQuotaExceeded,
@@ -200,5 +210,6 @@ export function useYouTubeSearch() {
     isTrackAvailable,
     verifyTracksAvailability,
     markAsUnavailable,
+    clearCache,
   };
 }
