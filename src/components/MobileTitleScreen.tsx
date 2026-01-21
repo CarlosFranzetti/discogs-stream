@@ -48,6 +48,9 @@ interface MobileTitleScreenProps {
   activeSources: SourceType[];
   onToggleSource: (source: SourceType) => void;
   onStartListening: () => void;
+  trackCount?: number;
+  isVerifying?: boolean;
+  verifyProgress?: { verified: number; total: number };
 }
 
 export function MobileTitleScreen({
@@ -64,6 +67,9 @@ export function MobileTitleScreen({
   activeSources,
   onToggleSource,
   onStartListening,
+  trackCount = 0,
+  isVerifying = false,
+  verifyProgress,
 }: MobileTitleScreenProps) {
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-background px-6 py-8 max-w-md mx-auto animate-fade-in">
@@ -161,9 +167,16 @@ export function MobileTitleScreen({
         onClick={onStartListening}
         size="lg"
         className="w-full gap-2 py-6 text-base shadow-glow"
+        disabled={isDiscogsAuthenticated && trackCount === 0}
       >
         <Play className="w-5 h-5" />
-        Start Listening
+        {isVerifying && verifyProgress ? (
+          `Finding tracks... ${verifyProgress.verified}/${verifyProgress.total}`
+        ) : trackCount > 0 ? (
+          `Start Listening (${trackCount} tracks)`
+        ) : (
+          'Start Listening'
+        )}
       </Button>
 
       {/* User auth section */}
