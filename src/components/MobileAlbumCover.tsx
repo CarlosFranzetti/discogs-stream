@@ -20,8 +20,9 @@ export function MobileAlbumCover({ track, isPlaying, onClick }: MobileAlbumCover
       className="relative w-full aspect-square cursor-pointer group"
       onClick={onClick}
     >
-      {/* Outer glow ring */}
-      <div className={`absolute inset-0 rounded-full transition-all duration-500 ${isPlaying ? 'ring-2 ring-primary/30 ring-offset-4 ring-offset-background' : ''}`} />
+      {/* Outer glow ring - cyan blue */}
+      <div className={`absolute -inset-3 rounded-full transition-all duration-500 ${isPlaying ? 'bg-gradient-to-r from-primary/20 via-transparent to-primary/20 animate-pulse-glow' : ''}`} />
+      <div className={`absolute -inset-1 rounded-full transition-all duration-300 ${isPlaying ? 'ring-2 ring-primary/40' : 'ring-1 ring-border'}`} />
       
       {/* Vinyl record background */}
       <div className={`absolute inset-0 rounded-full bg-vinyl-black shadow-vinyl ${isPlaying ? 'animate-spin-slow' : ''}`}>
