@@ -123,6 +123,19 @@ serve(async (req) => {
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     console.error('YouTube search error:', errorMessage);
+
+    // Defensive: some older implementations throw on 403; treat as quota so the client
+    // can stop background verification instead of crashing.
+    if (
+      /youtube api search error:\s*403/i.test(errorMessage) ||
+      /quotaExceeded|dailyLimitExceeded|exceeded.*quota/i.test(errorMessage)
+    ) {
+      return new Response(JSON.stringify({ error: 'quota_exceeded' }), {
+        status: 429,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
     return new Response(JSON.stringify({ error: errorMessage }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
