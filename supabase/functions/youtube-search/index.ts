@@ -49,19 +49,27 @@ serve(async (req) => {
     if (!searchResponse.ok) {
       const errorText = await searchResponse.text();
       console.error('YouTube API search error:', errorText);
-      if (searchResponse.status === 403 && isQuotaExceededPayload(errorText)) {
-        return new Response(JSON.stringify({ error: 'quota_exceeded' }), {
-          status: 429,
+
+      // 403 can mean either quota exceeded OR access forbidden (bad/disabled key, billing, etc.)
+      // Never bubble this up as a 500.
+      if (searchResponse.status === 403) {
+        if (isQuotaExceededPayload(errorText)) {
+          return new Response(JSON.stringify({ error: 'quota_exceeded' }), {
+            status: 429,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+
+        return new Response(JSON.stringify({ error: 'youtube_forbidden' }), {
+          status: 403,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }
-      return new Response(
-        JSON.stringify({ error: `YouTube API search error: ${searchResponse.status}` }),
-        {
-          status: 502,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        }
-      );
+
+      return new Response(JSON.stringify({ error: `YouTube API search error: ${searchResponse.status}` }), {
+        status: 502,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
     }
 
     const searchData = await searchResponse.json();
@@ -88,19 +96,25 @@ serve(async (req) => {
     if (!videosResponse.ok) {
       const errorText = await videosResponse.text();
       console.error('YouTube API videos.list error:', errorText);
-      if (videosResponse.status === 403 && isQuotaExceededPayload(errorText)) {
-        return new Response(JSON.stringify({ error: 'quota_exceeded' }), {
-          status: 429,
+
+      if (videosResponse.status === 403) {
+        if (isQuotaExceededPayload(errorText)) {
+          return new Response(JSON.stringify({ error: 'quota_exceeded' }), {
+            status: 429,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+
+        return new Response(JSON.stringify({ error: 'youtube_forbidden' }), {
+          status: 403,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }
-      return new Response(
-        JSON.stringify({ error: `YouTube API videos.list error: ${videosResponse.status}` }),
-        {
-          status: 502,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        }
-      );
+
+      return new Response(JSON.stringify({ error: `YouTube API videos.list error: ${videosResponse.status}` }), {
+        status: 502,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
     }
 
     const videosData = await videosResponse.json();
