@@ -143,30 +143,35 @@ export function MobilePlayer() {
   useEffect(() => {
     if (discogsTracks.length === 0 || isVerifying) return;
     if (isQuotaExceeded) return;
-    
+
+    let isMounted = true;
+
     const verifyInBackground = async () => {
       setIsVerifying(true);
       setVerifyProgress({ verified: 0, total: discogsTracks.length });
-      
+
       // Clear cache on fresh load to get actual links
       clearCache();
-      
+
       const batchSize = 5;
       const verified: Track[] = [];
-      
+
       for (let i = 0; i < discogsTracks.length; i += batchSize) {
+        if (!isMounted) break;
+
         const batch = discogsTracks.slice(i, i + batchSize);
-        
+
         const results = await Promise.all(
           batch.map(async (track) => {
-            // Always search fresh since we cleared cache
             const videoId = await searchForVideo(track);
-            return { 
-              track: videoId ? { ...track, youtubeId: videoId } : track, 
-              available: !!videoId 
+            return {
+              track: videoId ? { ...track, youtubeId: videoId } : track,
+              available: !!videoId,
             };
           })
         );
+
+        if (!isMounted) break;
 
         for (const result of results) {
           if (result.available) {
@@ -175,11 +180,9 @@ export function MobilePlayer() {
         }
 
         setVerifyProgress({ verified: i + batch.length, total: discogsTracks.length });
-        
-        // Update verified tracks incrementally so UI shows progress
         setVerifiedTracks([...verified]);
 
-        // Auto-start playback and switch to player view when first track is ready
+        // Auto-start playback when first track is ready
         if (verified.length > 0 && !hasAutoStartedRef.current) {
           hasAutoStartedRef.current = true;
           const firstTrack = verified[0];
@@ -187,18 +190,25 @@ export function MobilePlayer() {
             setCurrentVideoId(firstTrack.youtubeId);
           }
           setHasUserInteracted(true);
-          // Small delay to ensure player is mounted
           setTimeout(() => {
-            playerRef.current?.playVideo();
-            setIsPlaying(true);
+            if (isMounted) {
+              playerRef.current?.playVideo();
+              setIsPlaying(true);
+            }
           }, 300);
         }
       }
-      
-      setIsVerifying(false);
+
+      if (isMounted) {
+        setIsVerifying(false);
+      }
     };
 
     verifyInBackground();
+
+    return () => {
+      isMounted = false;
+    };
   }, [discogsTracks, searchForVideo, isQuotaExceeded, isVerifying, playerRef, setIsPlaying, clearCache]);
 
   // Update playlist when filtered tracks change
