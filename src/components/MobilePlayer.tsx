@@ -43,8 +43,11 @@ export function MobilePlayer() {
   } = useDiscogsAuth();
   
   const { isLoading: isLoadingData, error: dataError, fetchAllTracks } = useDiscogsData(credentials);
-  const { searchForVideo, isSearching, prefetchVideos } = useYouTubeSearch();
+  const { searchForVideo, isSearching, prefetchVideos, isTrackAvailable, markAsUnavailable } = useYouTubeSearch();
   const [discogsTracks, setDiscogsTracks] = useState<Track[]>([]);
+  const [verifiedTracks, setVerifiedTracks] = useState<Track[]>([]);
+  const [isVerifying, setIsVerifying] = useState(false);
+  const [verifyProgress, setVerifyProgress] = useState({ verified: 0, total: 0 });
   const [hasLoadedDiscogs, setHasLoadedDiscogs] = useState(false);
   const [currentVideoId, setCurrentVideoId] = useState<string>('');
   const lastSearchedTrackId = useRef<string>('');
@@ -55,10 +58,10 @@ export function MobilePlayer() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [volume, setVolume] = useState(100);
 
-  // Filter tracks by active sources
+  // Filter tracks by active sources - use verified tracks only
   const filteredTracks = useMemo(() => {
-    return discogsTracks.filter(track => activeSources.includes(track.source));
-  }, [discogsTracks, activeSources]);
+    return verifiedTracks.filter(track => activeSources.includes(track.source));
+  }, [verifiedTracks, activeSources]);
 
   const handleToggleSource = useCallback((source: SourceType) => {
     setActiveSources(prev => {
@@ -125,6 +128,54 @@ export function MobilePlayer() {
     }
   }, [isAuthenticated, credentials, hasLoadedDiscogs, fetchAllTracks]);
 
+  // Verify tracks for YouTube availability in background
+  useEffect(() => {
+    if (discogsTracks.length === 0 || isVerifying) return;
+    
+    const verifyInBackground = async () => {
+      setIsVerifying(true);
+      setVerifyProgress({ verified: 0, total: discogsTracks.length });
+      
+      const batchSize = 5;
+      const verified: Track[] = [];
+      
+      for (let i = 0; i < discogsTracks.length; i += batchSize) {
+        const batch = discogsTracks.slice(i, i + batchSize);
+        
+        const results = await Promise.all(
+          batch.map(async (track) => {
+            // Check if already known available
+            const status = isTrackAvailable(track);
+            if (status === true) return { track, available: true };
+            if (status === false) return { track, available: false };
+            
+            // Search for video
+            const videoId = await searchForVideo(track);
+            return { 
+              track: videoId ? { ...track, youtubeId: videoId } : track, 
+              available: !!videoId 
+            };
+          })
+        );
+
+        for (const result of results) {
+          if (result.available) {
+            verified.push(result.track);
+          }
+        }
+
+        setVerifyProgress({ verified: i + batch.length, total: discogsTracks.length });
+        
+        // Update verified tracks incrementally so UI shows progress
+        setVerifiedTracks([...verified]);
+      }
+      
+      setIsVerifying(false);
+    };
+
+    verifyInBackground();
+  }, [discogsTracks, isTrackAvailable, searchForVideo]);
+
   // Update playlist when filtered tracks change
   useEffect(() => {
     if (filteredTracks.length > 0 && setPlaylist) {
@@ -132,7 +183,7 @@ export function MobilePlayer() {
     }
   }, [filteredTracks, setPlaylist]);
 
-  // Auto-search for YouTube video when track changes
+  // Auto-search for YouTube video when track changes (fallback for any missed)
   useEffect(() => {
     if (!currentTrack) return;
     if (currentTrack.id === lastSearchedTrackId.current) return;
@@ -141,21 +192,25 @@ export function MobilePlayer() {
     if (currentTrack.youtubeId) {
       setCurrentVideoId(currentTrack.youtubeId);
     } else {
+      // Track should already have a youtubeId, but if not, search and skip if not found
       searchForVideo(currentTrack).then((videoId) => {
         if (videoId) {
           setCurrentVideoId(videoId);
-          setDiscogsTracks((prev) =>
+          setVerifiedTracks((prev) =>
             prev.map((t) =>
               t.id === currentTrack.id ? { ...t, youtubeId: videoId } : t
             )
           );
         } else {
+          // Mark as unavailable and skip
+          markAsUnavailable(currentTrack);
+          removeFromPlaylist(currentTrack.id);
           setCurrentVideoId('');
           skipNext();
         }
       });
     }
-  }, [currentTrack, searchForVideo, skipNext]);
+  }, [currentTrack, searchForVideo, skipNext, markAsUnavailable, removeFromPlaylist]);
 
   // Pre-fetch YouTube IDs for next 4 tracks
   useEffect(() => {
@@ -170,12 +225,21 @@ export function MobilePlayer() {
     upcomingTracks.forEach((t) => prefetchedRef.current.add(t.id));
 
     prefetchVideos(upcomingTracks).then((results) => {
+      const unavailableIds: string[] = [];
+      
+      results.forEach((videoId, trackId) => {
+        if (!videoId) {
+          unavailableIds.push(trackId);
+        }
+      });
+
+      // Update verified tracks with found IDs
       if (results.size > 0) {
-        setDiscogsTracks((prev) =>
+        setVerifiedTracks((prev) =>
           prev.map((t) => {
             const videoId = results.get(t.id);
             return videoId ? { ...t, youtubeId: videoId } : t;
-          })
+          }).filter((t) => !unavailableIds.includes(t.id))
         );
       }
     });
@@ -192,6 +256,9 @@ export function MobilePlayer() {
       if (!currentTrack) return;
 
       if (code === 100 || code === 2 || code === 5) {
+        // Video unavailable - remove from playlist and skip
+        markAsUnavailable(currentTrack);
+        removeFromPlaylist(currentTrack.id);
         skipNext();
         return;
       }
@@ -199,6 +266,9 @@ export function MobilePlayer() {
       if (code !== 150 && code !== 101) return;
 
       if (fallbackAttemptedRef.current.has(currentTrack.id)) {
+        // Already tried fallback, remove and skip
+        markAsUnavailable(currentTrack);
+        removeFromPlaylist(currentTrack.id);
         skipNext();
         return;
       }
@@ -209,15 +279,18 @@ export function MobilePlayer() {
 
       if (altId) {
         setCurrentVideoId(altId);
-        setDiscogsTracks((prev) =>
+        setVerifiedTracks((prev) =>
           prev.map((t) => (t.id === currentTrack.id ? { ...t, youtubeId: altId } : t))
         );
         return;
       }
 
+      // No alternative found - remove and skip
+      markAsUnavailable(currentTrack);
+      removeFromPlaylist(currentTrack.id);
       skipNext();
     },
-    [currentTrack, searchForVideo, skipNext]
+    [currentTrack, searchForVideo, skipNext, markAsUnavailable, removeFromPlaylist]
   );
 
   const handleStartListening = useCallback(() => {
@@ -242,6 +315,19 @@ export function MobilePlayer() {
       <div className="flex flex-col items-center justify-center h-screen bg-background gap-4">
         <Loader2 className="w-12 h-12 animate-spin text-primary" />
         <p className="text-muted-foreground">Loading your collection from Discogs...</p>
+      </div>
+    );
+  }
+
+  // Verifying YouTube availability
+  if (isAuthenticated && discogsTracks.length > 0 && verifiedTracks.length === 0 && isVerifying) {
+    return (
+      <div className="flex flex-col items-center justify-center h-screen bg-background gap-4">
+        <Loader2 className="w-12 h-12 animate-spin text-primary" />
+        <p className="text-muted-foreground">Finding available tracks on YouTube...</p>
+        <p className="text-sm text-muted-foreground">
+          {verifyProgress.verified} / {verifyProgress.total} checked
+        </p>
       </div>
     );
   }
@@ -277,6 +363,9 @@ export function MobilePlayer() {
           activeSources={activeSources}
           onToggleSource={handleToggleSource}
           onStartListening={handleStartListening}
+          trackCount={verifiedTracks.length}
+          isVerifying={isVerifying}
+          verifyProgress={verifyProgress}
         />
       </>
     );
