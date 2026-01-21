@@ -1,5 +1,5 @@
 import { Button } from '@/components/ui/button';
-import { Disc3, Heart, Play, User, LogOut } from 'lucide-react';
+import { Disc3, Heart, Play, User, LogOut, Radio, Loader2 } from 'lucide-react';
 import { SourceType } from './SourceFilters';
 
 interface SourceToggleProps {
@@ -15,16 +15,16 @@ function SourceToggle({ label, icon, isActive, onToggle }: SourceToggleProps) {
       onClick={onToggle}
       className={`flex items-center justify-between px-4 py-3 rounded-xl font-medium transition-all text-sm w-full ${
         isActive
-          ? 'bg-primary text-primary-foreground'
+          ? 'bg-primary/10 border border-primary text-foreground'
           : 'bg-card border border-border text-muted-foreground'
       }`}
     >
       <div className="flex items-center gap-3">
-        {icon}
+        <span className={isActive ? 'text-primary' : ''}>{icon}</span>
         <span>{label}</span>
       </div>
-      <div className={`w-10 h-6 rounded-full transition-colors ${isActive ? 'bg-primary-foreground/30' : 'bg-muted'}`}>
-        <div className={`w-5 h-5 rounded-full bg-background shadow-sm transition-transform mt-0.5 ${isActive ? 'translate-x-4.5 ml-0.5' : 'translate-x-0.5'}`} />
+      <div className={`w-10 h-6 rounded-full transition-colors ${isActive ? 'bg-primary' : 'bg-muted'}`}>
+        <div className={`w-5 h-5 rounded-full bg-white shadow-sm transition-transform mt-0.5 ${isActive ? 'translate-x-4.5 ml-0.5' : 'translate-x-0.5'}`} />
       </div>
     </button>
   );
@@ -63,75 +63,100 @@ export function MobileTitleScreen({
 }: MobileTitleScreenProps) {
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-background px-6 py-8 max-w-md mx-auto">
-      {/* Logo and title */}
-      <div className="text-center mb-8">
-        <h1 className="text-4xl font-display font-bold text-foreground italic mb-2">
-          Discogs Radio
+      {/* Radio icon with glow */}
+      <div className="relative mb-6">
+        {/* Outer glow rings */}
+        <div className="absolute inset-0 w-28 h-28 rounded-full bg-primary/5 animate-pulse" />
+        <div className="absolute inset-2 w-24 h-24 rounded-full border border-primary/20" />
+        <div className="absolute inset-4 w-20 h-20 rounded-full border border-primary/30" />
+        
+        {/* Icon container */}
+        <div className="relative w-28 h-28 rounded-full bg-gradient-to-b from-card to-background border border-border flex items-center justify-center">
+          <Radio className="w-10 h-10 text-primary" strokeWidth={1.5} />
+        </div>
+      </div>
+
+      {/* Title */}
+      <div className="text-center mb-6">
+        <h1 className="text-5xl font-sans font-bold text-foreground tracking-tight">
+          Discogs
         </h1>
-        <p className="text-muted-foreground">
+        <h2 className="text-4xl font-sans font-bold text-primary tracking-tight glow-text">
+          Radio
+        </h2>
+        <p className="text-muted-foreground mt-3">
           Stream music from your Discogs collection
         </p>
       </div>
 
-      {/* Discogs connection card */}
-      {isDiscogsAuthenticated && discogsUsername ? (
-        <div className="w-full bg-card rounded-xl p-4 mb-6 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center">
-              <Disc3 className="w-5 h-5 text-primary" />
-            </div>
-            <div>
-              <p className="font-medium text-foreground">{discogsUsername}</p>
-              <p className="text-xs text-muted-foreground">Connected to Discogs</p>
-            </div>
+      {/* Connection card */}
+      <div className="w-full bg-card/50 backdrop-blur-sm rounded-2xl border border-border p-5 mb-6">
+        {isDiscogsAuthenticating ? (
+          /* Loading state */
+          <div className="flex flex-col items-center py-4">
+            <Loader2 className="w-8 h-8 text-primary animate-spin mb-3" />
+            <p className="text-muted-foreground">Connecting to Discogs...</p>
           </div>
-          <button onClick={onDisconnectDiscogs} className="text-muted-foreground hover:text-foreground">
-            <LogOut className="w-5 h-5" />
-          </button>
-        </div>
-      ) : (
-        <div className="w-full mb-6">
-          <Button
-            onClick={onConnectDiscogs}
-            disabled={isDiscogsAuthenticating}
-            variant="outline"
-            className="w-full gap-2 py-6"
-          >
-            <Disc3 className="w-5 h-5" />
-            {isDiscogsAuthenticating ? 'Connecting...' : 'Connect to Discogs'}
-          </Button>
-          {discogsError && (
-            <p className="text-xs text-destructive mt-2 text-center">{discogsError}</p>
-          )}
-        </div>
-      )}
+        ) : isDiscogsAuthenticated && discogsUsername ? (
+          /* Connected state */
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+                  <Disc3 className="w-5 h-5 text-primary" />
+                </div>
+                <div>
+                  <p className="font-medium text-foreground">{discogsUsername}</p>
+                  <p className="text-xs text-muted-foreground">Connected to Discogs</p>
+                </div>
+              </div>
+              <button onClick={onDisconnectDiscogs} className="text-muted-foreground hover:text-foreground p-2">
+                <LogOut className="w-5 h-5" />
+              </button>
+            </div>
 
-      {/* Source toggles - only show when connected */}
-      {isDiscogsAuthenticated && (
-        <div className="w-full mb-6">
-          <p className="text-sm text-muted-foreground mb-3 text-center">Select sources to include:</p>
-          <div className="space-y-3">
-            <SourceToggle
-              label="Collection"
-              icon={<Disc3 className="w-5 h-5" />}
-              isActive={activeSources.includes('collection')}
-              onToggle={() => onToggleSource('collection')}
-            />
-            <SourceToggle
-              label="Wantlist"
-              icon={<Heart className="w-5 h-5" />}
-              isActive={activeSources.includes('wantlist')}
-              onToggle={() => onToggleSource('wantlist')}
-            />
+            {/* Source toggles */}
+            <div className="pt-2">
+              <p className="text-sm text-muted-foreground mb-3 text-center">Select sources to include:</p>
+              <div className="space-y-2">
+                <SourceToggle
+                  label="Collection"
+                  icon={<Disc3 className="w-5 h-5" />}
+                  isActive={activeSources.includes('collection')}
+                  onToggle={() => onToggleSource('collection')}
+                />
+                <SourceToggle
+                  label="Wantlist"
+                  icon={<Heart className="w-5 h-5" />}
+                  isActive={activeSources.includes('wantlist')}
+                  onToggle={() => onToggleSource('wantlist')}
+                />
+              </div>
+            </div>
           </div>
-        </div>
-      )}
+        ) : (
+          /* Not connected state */
+          <div className="space-y-4">
+            <Button
+              onClick={onConnectDiscogs}
+              variant="outline"
+              className="w-full gap-2 py-6 border-border hover:border-primary hover:bg-primary/5"
+            >
+              <Disc3 className="w-5 h-5" />
+              Connect to Discogs
+            </Button>
+            {discogsError && (
+              <p className="text-xs text-destructive text-center">{discogsError}</p>
+            )}
+          </div>
+        )}
+      </div>
 
       {/* Start Listening button */}
       <Button
         onClick={onStartListening}
         size="lg"
-        className="w-full gap-2 py-6 text-base"
+        className="w-full gap-2 py-6 text-base shadow-glow"
       >
         <Play className="w-5 h-5" />
         Start Listening
