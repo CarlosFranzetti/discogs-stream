@@ -23,10 +23,18 @@ function clearAllCaches() {
 export function useYouTubeSearch() {
   const [isSearching, setIsSearching] = useState(false);
   const [isQuotaExceeded, setIsQuotaExceeded] = useState(false);
+  // Important: use a ref so in-flight loops can see quota updates immediately
+  // (state updates won't update existing closures until rerender).
+  const quotaExceededRef = useRef(false);
   const pendingSearches = useRef<Map<string, Promise<string>>>(new Map());
 
   const isQuotaError = useCallback((errText: string) => {
-    return /quota_exceeded|quotaExceeded|dailyLimitExceeded|exceeded.*quota/i.test(errText);
+    return /quota_exceeded|quotaExceeded|dailyLimitExceeded|exceeded.*quota|youtube api search error:\s*403/i.test(errText);
+  }, []);
+
+  const markQuotaExceeded = useCallback(() => {
+    quotaExceededRef.current = true;
+    setIsQuotaExceeded(true);
   }, []);
 
   const getCacheKey = useCallback((track: Track): string => {
@@ -68,8 +76,8 @@ export function useYouTubeSearch() {
         return pendingSearches.current.get(cacheKey)!;
       }
 
-      // If we've already hit YouTube quota this session, avoid hammering the backend.
-      if (!force && isQuotaExceeded) {
+       // If we've already hit YouTube quota this session, avoid hammering the backend.
+       if (!force && quotaExceededRef.current) {
         return '';
       }
 
@@ -89,8 +97,8 @@ export function useYouTubeSearch() {
             const msg = String(error.message || 'YouTube search failed');
             console.error('YouTube search failed:', msg);
 
-            if (status === 429 || isQuotaError(msg)) {
-              setIsQuotaExceeded(true);
+             if (status === 429 || isQuotaError(msg)) {
+               markQuotaExceeded();
             }
             // Do NOT cache as unavailable when backend fails (prevents false negatives)
             return '';
@@ -124,7 +132,7 @@ export function useYouTubeSearch() {
       }
       return searchPromise;
     },
-    [getCacheKey, isQuotaError, isQuotaExceeded]
+    [getCacheKey, isQuotaError, markQuotaExceeded]
   );
 
   const getSearchUrl = useCallback((track: Track): string => {
