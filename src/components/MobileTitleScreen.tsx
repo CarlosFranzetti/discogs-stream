@@ -62,13 +62,13 @@ export function MobileTitleScreen({
   onStartListening,
 }: MobileTitleScreenProps) {
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-background px-6 py-8 max-w-md mx-auto">
+    <div className="flex flex-col items-center justify-center min-h-screen bg-background px-6 py-8 max-w-md mx-auto animate-fade-in">
       {/* Radio icon with glow */}
       <div className="relative mb-6">
-        {/* Outer glow rings */}
-        <div className="absolute inset-0 w-28 h-28 rounded-full bg-primary/5 animate-pulse" />
-        <div className="absolute inset-2 w-24 h-24 rounded-full border border-primary/20" />
-        <div className="absolute inset-4 w-20 h-20 rounded-full border border-primary/30" />
+        {/* Outer glow rings with staggered pulse animations */}
+        <div className="absolute inset-0 w-28 h-28 rounded-full bg-primary/5 animate-[pulse_2s_ease-in-out_infinite]" />
+        <div className="absolute inset-2 w-24 h-24 rounded-full border border-primary/20 animate-[pulse_2s_ease-in-out_0.3s_infinite]" />
+        <div className="absolute inset-4 w-20 h-20 rounded-full border border-primary/30 animate-[pulse_2s_ease-in-out_0.6s_infinite]" />
         
         {/* Icon container */}
         <div className="relative w-28 h-28 rounded-full bg-gradient-to-b from-card to-background border border-border flex items-center justify-center">
