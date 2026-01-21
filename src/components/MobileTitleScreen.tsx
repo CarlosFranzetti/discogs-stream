@@ -167,11 +167,13 @@ export function MobileTitleScreen({
         onClick={onStartListening}
         size="lg"
         className="w-full gap-2 py-6 text-base shadow-glow"
-        disabled={isDiscogsAuthenticated && trackCount === 0}
+        disabled={isDiscogsAuthenticated && trackCount === 0 && !isVerifying}
       >
         <Play className="w-5 h-5" />
-        {isVerifying && verifyProgress ? (
-          `Finding tracks... ${verifyProgress.verified}/${verifyProgress.total}`
+        {isVerifying && trackCount === 0 ? (
+          `Finding tracks... ${verifyProgress?.verified || 0}/${verifyProgress?.total || 0}`
+        ) : isVerifying && trackCount > 0 ? (
+          `Start Listening (${trackCount}+ tracks)`
         ) : trackCount > 0 ? (
           `Start Listening (${trackCount} tracks)`
         ) : (

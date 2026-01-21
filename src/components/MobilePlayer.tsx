@@ -315,10 +315,14 @@ export function MobilePlayer() {
 
   const handleStartListening = useCallback(() => {
     setHasUserInteracted(true);
-    setTimeout(() => {
-      playerRef.current?.playVideo();
-    }, 100);
-  }, [playerRef]);
+    // Start playback as soon as we have at least one track
+    if (currentTrack?.youtubeId || currentVideoId) {
+      setTimeout(() => {
+        playerRef.current?.playVideo();
+        setIsPlaying(true);
+      }, 100);
+    }
+  }, [playerRef, currentTrack, currentVideoId, setIsPlaying]);
 
   // Loading states
   if (isAuthenticating) {
@@ -350,18 +354,7 @@ export function MobilePlayer() {
     );
   }
 
-  // Verifying YouTube availability
-  if (isAuthenticated && discogsTracks.length > 0 && verifiedTracks.length === 0 && isVerifying) {
-    return (
-      <div className="flex flex-col items-center justify-center h-screen bg-background gap-4">
-        <Loader2 className="w-12 h-12 animate-spin text-primary" />
-        <p className="text-muted-foreground">Finding available tracks on YouTube...</p>
-        <p className="text-sm text-muted-foreground">
-          {verifyProgress.verified} / {verifyProgress.total} checked
-        </p>
-      </div>
-    );
-  }
+  // No longer blocking on verification - title screen shows progress and allows starting early
 
   // Title screen
   if (!hasUserInteracted) {
