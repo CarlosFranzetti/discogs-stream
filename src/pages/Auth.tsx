@@ -92,8 +92,6 @@ export default function Auth() {
         if (error) {
           if (error.message.includes('Invalid login credentials')) {
             setError('Invalid email or password. Please try again.');
-          } else if (error.message.toLowerCase().includes('load failed') || error.message.toLowerCase().includes('network')) {
-            setError('Network error. Please check your connection and try again.');
           } else {
             setError(error.message);
           }
