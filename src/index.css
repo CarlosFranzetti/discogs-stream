@@ -102,6 +102,16 @@
     animation-play-state: running;
   }
 
+  .vinyl-texture {
+    background: radial-gradient(
+      circle at center,
+      hsl(20 10% 12%) 0%,
+      hsl(20 8% 8%) 30%,
+      hsl(20 10% 6%) 60%,
+      hsl(20 8% 4%) 100%
+    );
+  }
+
   .timeline-thumb {
     @apply w-4 h-4 rounded-full bg-primary shadow-lg;
     @apply transition-transform duration-150;
@@ -131,6 +141,10 @@
 
   .amber-glow {
     box-shadow: 0 0 30px hsl(38 90% 55% / 0.2);
+  }
+
+  .glow-text {
+    text-shadow: 0 0 20px hsl(38 90% 55% / 0.4);
   }
 }
 

@@ -10,6 +10,11 @@ declare namespace YT {
     getCurrentTime(): number;
     getDuration(): number;
     getPlayerState(): number;
+    getVolume(): number;
+    setVolume(volume: number): void;
+    isMuted(): boolean;
+    mute(): void;
+    unMute(): void;
     destroy(): void;
   }
 

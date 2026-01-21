@@ -1,7 +1,7 @@
-import { Player } from '@/components/Player';
+import { MobilePlayer } from '@/components/MobilePlayer';
 
 const Index = () => {
-  return <Player />;
+  return <MobilePlayer />;
 };
 
 export default Index;
