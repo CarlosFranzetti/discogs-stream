@@ -7,6 +7,16 @@ const corsHeaders = {
 
 const YOUTUBE_API_KEY = Deno.env.get('YOUTUBE_API_KEY')!;
 
+function isQuotaExceededPayload(errorText: string): boolean {
+  try {
+    const parsed = JSON.parse(errorText);
+    const reasons = (parsed?.error?.errors || []).map((e: any) => e?.reason).filter(Boolean);
+    return reasons.includes('quotaExceeded') || reasons.includes('dailyLimitExceeded');
+  } catch {
+    return /quotaExceeded|dailyLimitExceeded|exceeded.*quota/i.test(errorText);
+  }
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -39,7 +49,19 @@ serve(async (req) => {
     if (!searchResponse.ok) {
       const errorText = await searchResponse.text();
       console.error('YouTube API search error:', errorText);
-      throw new Error(`YouTube API search error: ${searchResponse.status}`);
+      if (searchResponse.status === 403 && isQuotaExceededPayload(errorText)) {
+        return new Response(JSON.stringify({ error: 'quota_exceeded' }), {
+          status: 429,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      return new Response(
+        JSON.stringify({ error: `YouTube API search error: ${searchResponse.status}` }),
+        {
+          status: 502,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        }
+      );
     }
 
     const searchData = await searchResponse.json();
@@ -66,7 +88,19 @@ serve(async (req) => {
     if (!videosResponse.ok) {
       const errorText = await videosResponse.text();
       console.error('YouTube API videos.list error:', errorText);
-      throw new Error(`YouTube API videos.list error: ${videosResponse.status}`);
+      if (videosResponse.status === 403 && isQuotaExceededPayload(errorText)) {
+        return new Response(JSON.stringify({ error: 'quota_exceeded' }), {
+          status: 429,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      return new Response(
+        JSON.stringify({ error: `YouTube API videos.list error: ${videosResponse.status}` }),
+        {
+          status: 502,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        }
+      );
     }
 
     const videosData = await videosResponse.json();

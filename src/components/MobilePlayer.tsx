@@ -43,7 +43,14 @@ export function MobilePlayer() {
   } = useDiscogsAuth();
   
   const { isLoading: isLoadingData, error: dataError, fetchAllTracks } = useDiscogsData(credentials);
-  const { searchForVideo, isSearching, prefetchVideos, isTrackAvailable, markAsUnavailable } = useYouTubeSearch();
+  const {
+    searchForVideo,
+    isSearching,
+    prefetchVideos,
+    isTrackAvailable,
+    markAsUnavailable,
+    isQuotaExceeded,
+  } = useYouTubeSearch();
   const [discogsTracks, setDiscogsTracks] = useState<Track[]>([]);
   const [verifiedTracks, setVerifiedTracks] = useState<Track[]>([]);
   const [isVerifying, setIsVerifying] = useState(false);
@@ -131,6 +138,7 @@ export function MobilePlayer() {
   // Verify tracks for YouTube availability in background
   useEffect(() => {
     if (discogsTracks.length === 0 || isVerifying) return;
+    if (isQuotaExceeded) return;
     
     const verifyInBackground = async () => {
       setIsVerifying(true);
@@ -174,7 +182,7 @@ export function MobilePlayer() {
     };
 
     verifyInBackground();
-  }, [discogsTracks, isTrackAvailable, searchForVideo]);
+  }, [discogsTracks, isTrackAvailable, searchForVideo, isQuotaExceeded, isVerifying]);
 
   // Update playlist when filtered tracks change
   useEffect(() => {
@@ -192,6 +200,11 @@ export function MobilePlayer() {
     if (currentTrack.youtubeId) {
       setCurrentVideoId(currentTrack.youtubeId);
     } else {
+      if (isQuotaExceeded) {
+        setCurrentVideoId('');
+        setIsPlaying(false);
+        return;
+      }
       // Track should already have a youtubeId, but if not, search and skip if not found
       searchForVideo(currentTrack).then((videoId) => {
         if (videoId) {
@@ -203,14 +216,16 @@ export function MobilePlayer() {
           );
         } else {
           // Mark as unavailable and skip
-          markAsUnavailable(currentTrack);
-          removeFromPlaylist(currentTrack.id);
-          setCurrentVideoId('');
-          skipNext();
+          if (!isQuotaExceeded) {
+            markAsUnavailable(currentTrack);
+            removeFromPlaylist(currentTrack.id);
+            setCurrentVideoId('');
+            skipNext();
+          }
         }
       });
     }
-  }, [currentTrack, searchForVideo, skipNext, markAsUnavailable, removeFromPlaylist]);
+  }, [currentTrack, searchForVideo, skipNext, markAsUnavailable, removeFromPlaylist, isQuotaExceeded, setIsPlaying]);
 
   // Pre-fetch YouTube IDs for next 4 tracks
   useEffect(() => {
@@ -255,6 +270,11 @@ export function MobilePlayer() {
     async (code: number) => {
       if (!currentTrack) return;
 
+      if (isQuotaExceeded) {
+        setIsPlaying(false);
+        return;
+      }
+
       if (code === 100 || code === 2 || code === 5) {
         // Video unavailable - remove from playlist and skip
         markAsUnavailable(currentTrack);
@@ -290,7 +310,7 @@ export function MobilePlayer() {
       removeFromPlaylist(currentTrack.id);
       skipNext();
     },
-    [currentTrack, searchForVideo, skipNext, markAsUnavailable, removeFromPlaylist]
+    [currentTrack, searchForVideo, skipNext, markAsUnavailable, removeFromPlaylist, isQuotaExceeded, setIsPlaying]
   );
 
   const handleStartListening = useCallback(() => {
@@ -315,6 +335,17 @@ export function MobilePlayer() {
       <div className="flex flex-col items-center justify-center h-screen bg-background gap-4">
         <Loader2 className="w-12 h-12 animate-spin text-primary" />
         <p className="text-muted-foreground">Loading your collection from Discogs...</p>
+      </div>
+    );
+  }
+
+  if (isQuotaExceeded) {
+    return (
+      <div className="flex flex-col items-center justify-center h-screen bg-background gap-3 px-6 text-center">
+        <p className="text-foreground font-medium">YouTube quota exceeded</p>
+        <p className="text-sm text-muted-foreground">
+          The backend search is rate-limited right now, so we can’t verify or load videos. Update the YouTube API key or wait for the quota to reset.
+        </p>
       </div>
     );
   }
