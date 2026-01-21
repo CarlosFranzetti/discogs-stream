@@ -23,8 +23,12 @@ function SourceToggle({ label, icon, isActive, onToggle }: SourceToggleProps) {
         <span className={isActive ? 'text-primary' : ''}>{icon}</span>
         <span>{label}</span>
       </div>
-      <div className={`w-10 h-6 rounded-full transition-colors ${isActive ? 'bg-primary' : 'bg-muted'}`}>
-        <div className={`w-5 h-5 rounded-full bg-white shadow-sm transition-transform mt-0.5 ${isActive ? 'translate-x-4.5 ml-0.5' : 'translate-x-0.5'}`} />
+      <div className={`relative w-10 h-6 rounded-full transition-colors ${isActive ? 'bg-primary' : 'bg-muted'}`}>
+        <div 
+          className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow-sm transition-all duration-200 ${
+            isActive ? 'left-[18px]' : 'left-0.5'
+          }`} 
+        />
       </div>
     </button>
   );
