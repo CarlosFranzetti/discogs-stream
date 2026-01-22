@@ -53,9 +53,11 @@ serve(async (req) => {
       // 403 can mean either quota exceeded OR access forbidden (bad/disabled key, billing, etc.)
       // Never bubble this up as a 500.
       if (searchResponse.status === 403) {
+        // Return 200 to avoid client/platform treating this as a hard runtime failure.
+        // The client still detects `error: 'quota_exceeded'` and will stop background verification.
         if (isQuotaExceededPayload(errorText)) {
-          return new Response(JSON.stringify({ error: 'quota_exceeded' }), {
-            status: 429,
+          return new Response(JSON.stringify({ error: 'quota_exceeded', videos: [] }), {
+            status: 200,
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
           });
         }
@@ -99,8 +101,8 @@ serve(async (req) => {
 
       if (videosResponse.status === 403) {
         if (isQuotaExceededPayload(errorText)) {
-          return new Response(JSON.stringify({ error: 'quota_exceeded' }), {
-            status: 429,
+          return new Response(JSON.stringify({ error: 'quota_exceeded', videos: [] }), {
+            status: 200,
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
           });
         }
