@@ -17,6 +17,7 @@ import { Track } from '@/types/track';
 import { Loader2, Radio, Menu, Volume2 } from 'lucide-react';
 import { Slider } from '@/components/ui/slider';
 import { SourceType } from './SourceFilters';
+import { QuotaBanner } from './QuotaBanner';
 
 export function MobilePlayer() {
   const navigate = useNavigate();
@@ -47,10 +48,10 @@ export function MobilePlayer() {
     searchForVideo,
     isSearching,
     prefetchVideos,
-    isTrackAvailable,
     markAsUnavailable,
     isQuotaExceeded,
     clearCache,
+    getSearchUrl,
   } = useYouTubeSearch();
   const [discogsTracks, setDiscogsTracks] = useState<Track[]>([]);
   const [verifiedTracks, setVerifiedTracks] = useState<Track[]>([]);
@@ -370,16 +371,12 @@ export function MobilePlayer() {
     );
   }
 
-  if (isQuotaExceeded) {
-    return (
-      <div className="flex flex-col items-center justify-center h-screen bg-background gap-3 px-6 text-center">
-        <p className="text-foreground font-medium">YouTube quota exceeded</p>
-        <p className="text-sm text-muted-foreground">
-          The backend search is rate-limited right now, so we can’t verify or load videos. Update the YouTube API key or wait for the quota to reset.
-        </p>
-      </div>
-    );
-  }
+  // Demo mode helper - open current track in YouTube
+  const handleOpenInYouTube = useCallback(() => {
+    if (currentTrack) {
+      window.open(getSearchUrl(currentTrack), '_blank');
+    }
+  }, [currentTrack, getSearchUrl]);
 
   // No longer blocking on verification - title screen shows progress and allows starting early
 
@@ -478,6 +475,13 @@ export function MobilePlayer() {
             </div>
           )}
         </div>
+
+        {/* Quota banner (demo mode) */}
+        {isQuotaExceeded && (
+          <div className="mb-3">
+            <QuotaBanner onOpenYouTube={handleOpenInYouTube} />
+          </div>
+        )}
 
         {/* Source badge */}
         {currentTrack && (
