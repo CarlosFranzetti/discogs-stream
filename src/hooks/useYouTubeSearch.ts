@@ -27,6 +27,8 @@ export function useYouTubeSearch() {
   // (state updates won't update existing closures until rerender).
   const quotaExceededRef = useRef(false);
   const pendingSearches = useRef<Map<string, Promise<string>>>(new Map());
+  const lastSearchTime = useRef<number>(0);
+  const MIN_SEARCH_INTERVAL = 500; // ms
 
   const isQuotaError = useCallback((errText: string) => {
     return /quota_exceeded|quotaExceeded|dailyLimitExceeded|exceeded.*quota|youtube api search error:\s*403/i.test(errText);
@@ -81,6 +83,14 @@ export function useYouTubeSearch() {
         return '';
       }
 
+      // Throttle requests
+      const now = Date.now();
+      const timeSinceLastSearch = now - lastSearchTime.current;
+      if (timeSinceLastSearch < MIN_SEARCH_INTERVAL) {
+        await new Promise(resolve => setTimeout(resolve, MIN_SEARCH_INTERVAL - timeSinceLastSearch));
+      }
+      lastSearchTime.current = Date.now();
+
       setIsSearching(true);
 
       // Create the search promise
@@ -89,7 +99,12 @@ export function useYouTubeSearch() {
           const query = `${track.artist} ${track.title}`;
 
           const { data, error } = await supabase.functions.invoke('youtube-search', {
-            body: { query, maxResults },
+            body: { 
+              query, 
+              maxResults,
+              artist: track.artist,
+              title: track.title
+            },
           });
 
           if (error) {
@@ -151,7 +166,7 @@ export function useYouTubeSearch() {
     const results = new Map<string, string>();
     
     // Search for videos in parallel, but limit concurrency
-    const batchSize = 5;
+    const batchSize = 3; // Reduced batch size
     for (let i = 0; i < tracks.length; i += batchSize) {
       const batch = tracks.slice(i, i + batchSize);
       const promises = batch.map(async (track) => {
@@ -159,6 +174,11 @@ export function useYouTubeSearch() {
         results.set(track.id, videoId);
       });
       await Promise.all(promises);
+      
+      // Add delay between batches
+      if (i + batchSize < tracks.length) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
     }
     
     return results;
@@ -172,7 +192,7 @@ export function useYouTubeSearch() {
     const available: Track[] = [];
     const unavailable: Track[] = [];
     
-    const batchSize = 5;
+    const batchSize = 3;
     let verified = 0;
 
     for (let i = 0; i < tracks.length; i += batchSize) {
@@ -201,6 +221,11 @@ export function useYouTubeSearch() {
 
       verified += batch.length;
       onProgress?.(verified, tracks.length);
+
+       // Add delay between batches
+       if (i + batchSize < tracks.length) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
     }
     
     return { available, unavailable };

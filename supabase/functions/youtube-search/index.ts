@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -6,6 +7,10 @@ const corsHeaders = {
 };
 
 const YOUTUBE_API_KEY = Deno.env.get('YOUTUBE_API_KEY')!;
+const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
+const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+
+const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
 function isQuotaExceededPayload(errorText: string): boolean {
   try {
@@ -23,11 +28,53 @@ serve(async (req) => {
   }
 
   try {
-    const { query, maxResults = 1 } = await req.json();
+    const { query, maxResults = 1, pageToken, artist, title } = await req.json();
     
     if (!query) {
       return new Response(JSON.stringify({ error: 'Query is required' }), {
         status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // 0) Check Permanent DB (youtube_videos)
+    if (artist && title) {
+       const { data: dbVideo } = await supabase
+         .from('youtube_videos')
+         .select('*')
+         .eq('artist', artist)
+         .eq('title', title)
+         .maybeSingle();
+       
+       if (dbVideo) {
+          console.log(`DB hit for ${artist} - ${title}`);
+          return new Response(JSON.stringify({
+            videos: [{
+              videoId: dbVideo.video_id,
+              title: title, // Use track title or dbVideo.title? dbVideo has nothing stored for title of video itself? Ah, migration has 'title' which is track title. 
+              // Wait, migration: artist text, title text (track info), video_id text.
+              // I should probably return the stored info.
+              channelTitle: dbVideo.channel_title,
+              thumbnail: dbVideo.thumbnail,
+              durationIso: dbVideo.duration_iso
+            }] 
+          }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+       }
+    }
+
+    // Check Cache
+    const { data: cachedData } = await supabase
+      .from('search_cache')
+      .select('results')
+      .eq('query', query)
+      .eq('page_token', pageToken || null) // Handle undefined/null explicitly if needed, assuming DB handles null
+      .gt('expires_at', new Date().toISOString())
+      .limit(1)
+      .maybeSingle();
+
+    if (cachedData) {
+      console.log(`Cache hit for query: ${query}`);
+      return new Response(JSON.stringify(cachedData.results), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
@@ -43,6 +90,9 @@ serve(async (req) => {
     searchUrl.searchParams.set('key', YOUTUBE_API_KEY);
     // Prefer music videos and official content
     searchUrl.searchParams.set('videoCategoryId', '10'); // Music category
+    if (pageToken) {
+      searchUrl.searchParams.set('pageToken', pageToken);
+    }
 
     const searchResponse = await fetch(searchUrl.toString());
 
@@ -76,20 +126,30 @@ serve(async (req) => {
 
     const searchData = await searchResponse.json();
     const items = searchData.items || [];
+    const nextPageToken = searchData.nextPageToken;
 
     const candidateIds: string[] = items
       .map((item: any) => item?.id?.videoId)
       .filter(Boolean);
 
     if (candidateIds.length === 0) {
-      return new Response(JSON.stringify({ videos: [] }), {
+       // Cache empty result
+       const emptyResult = { videos: [], nextPageToken };
+       await supabase.from('search_cache').insert({
+         query,
+         page_token: pageToken || null,
+         results: emptyResult,
+         expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+       });
+
+      return new Response(JSON.stringify(emptyResult), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
     // 2) Verify embeddable status (avoids IFrame errors like 150/101)
     const videosUrl = new URL('https://www.googleapis.com/youtube/v3/videos');
-    videosUrl.searchParams.set('part', 'status,snippet');
+    videosUrl.searchParams.set('part', 'status,snippet,contentDetails');
     videosUrl.searchParams.set('id', candidateIds.join(','));
     videosUrl.searchParams.set('key', YOUTUBE_API_KEY);
 
@@ -128,11 +188,44 @@ serve(async (req) => {
         title: item.snippet?.title,
         channelTitle: item.snippet?.channelTitle,
         thumbnail: item.snippet?.thumbnails?.medium?.url || item.snippet?.thumbnails?.default?.url,
+        durationIso: item.contentDetails?.duration,
       }));
 
     console.log(`Found ${embeddable.length} embeddable videos for query: ${query}`);
 
-    return new Response(JSON.stringify({ videos: embeddable }), {
+    const resultData = { videos: embeddable, nextPageToken };
+
+    // Store in Permanent DB
+    if (artist && title && embeddable.length > 0) {
+      const topVideo = embeddable[0];
+      try {
+        await supabase.from('youtube_videos').upsert({
+          artist,
+          title,
+          video_id: topVideo.videoId,
+          channel_title: topVideo.channelTitle,
+          thumbnail: topVideo.thumbnail,
+          duration_iso: topVideo.durationIso,
+        }, { onConflict: 'artist,title' });
+        console.log(`Saved video for ${artist} - ${title}`);
+      } catch (dbError) {
+        console.error('Failed to save to youtube_videos:', dbError);
+      }
+    }
+
+    // Store in Cache
+    try {
+      await supabase.from('search_cache').insert({
+        query,
+        page_token: pageToken || null,
+        results: resultData,
+        expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      });
+    } catch (cacheError) {
+      console.error('Failed to cache results:', cacheError);
+    }
+
+    return new Response(JSON.stringify(resultData), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
 
