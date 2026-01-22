@@ -28,7 +28,7 @@ serve(async (req) => {
   }
 
   try {
-    const { query, maxResults = 1, pageToken, artist, title } = await req.json();
+    const { query, maxResults = 1, pageToken, artist, title, refresh = false } = await req.json();
     
     if (!query) {
       return new Response(JSON.stringify({ error: 'Query is required' }), {
@@ -36,6 +36,8 @@ serve(async (req) => {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
+
+    let existingVideoId: string | null = null;
 
     // 0) Check Permanent DB (youtube_videos)
     if (artist && title) {
@@ -47,41 +49,90 @@ serve(async (req) => {
          .maybeSingle();
        
        if (dbVideo) {
-          console.log(`DB hit for ${artist} - ${title}`);
-          return new Response(JSON.stringify({
-            videos: [{
-              videoId: dbVideo.video_id,
-              title: title, // Use track title or dbVideo.title? dbVideo has nothing stored for title of video itself? Ah, migration has 'title' which is track title. 
-              // Wait, migration: artist text, title text (track info), video_id text.
-              // I should probably return the stored info.
-              channelTitle: dbVideo.channel_title,
-              thumbnail: dbVideo.thumbnail,
-              durationIso: dbVideo.duration_iso
-            }] 
-          }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+          existingVideoId = dbVideo.video_id;
+          
+          if (!refresh) {
+            console.log(`DB hit for ${artist} - ${title}`);
+            return new Response(JSON.stringify({
+              videos: [{
+                videoId: dbVideo.video_id,
+                title: title, 
+                channelTitle: dbVideo.channel_title,
+                thumbnail: dbVideo.thumbnail,
+                durationIso: dbVideo.duration_iso
+              }] 
+            }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+          }
        }
     }
 
-    // Check Cache
-    const { data: cachedData } = await supabase
-      .from('search_cache')
-      .select('results')
-      .eq('query', query)
-      .eq('page_token', pageToken || null) // Handle undefined/null explicitly if needed, assuming DB handles null
-      .gt('expires_at', new Date().toISOString())
-      .limit(1)
-      .maybeSingle();
+    // Check Cache (only if not refreshing)
+    if (!refresh) {
+      const { data: cachedData } = await supabase
+        .from('search_cache')
+        .select('results')
+        .eq('query', query)
+        .eq('page_token', pageToken || null)
+        .gt('expires_at', new Date().toISOString())
+        .limit(1)
+        .maybeSingle();
 
-    if (cachedData) {
-      console.log(`Cache hit for query: ${query}`);
-      return new Response(JSON.stringify(cachedData.results), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      if (cachedData) {
+        console.log(`Cache hit for query: ${query}`);
+        return new Response(JSON.stringify(cachedData.results), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+    }
+
+    // 1) If we have an existing ID and we're refreshing or it's a miss, try videos.list first (cheap)
+    if (existingVideoId) {
+      console.log(`Verifying existing video ID: ${existingVideoId}`);
+      const videosUrl = new URL('https://www.googleapis.com/youtube/v3/videos');
+      videosUrl.searchParams.set('part', 'status,snippet,contentDetails');
+      videosUrl.searchParams.set('id', existingVideoId);
+      videosUrl.searchParams.set('key', YOUTUBE_API_KEY);
+
+      const videosResponse = await fetch(videosUrl.toString());
+      if (videosResponse.ok) {
+        const videosData = await videosResponse.json();
+        const item = (videosData.items || [])[0];
+        
+        if (item?.status?.embeddable) {
+          console.log(`Existing video ID ${existingVideoId} is still valid and embeddable.`);
+          const resultData = {
+            videos: [{
+              videoId: item.id,
+              title: item.snippet?.title,
+              channelTitle: item.snippet?.channelTitle,
+              thumbnail: item.snippet?.thumbnails?.medium?.url || item.snippet?.thumbnails?.default?.url,
+              durationIso: item.contentDetails?.duration,
+            }],
+            nextPageToken: null
+          };
+
+          // Update DB if needed (e.g. update updated_at or other details)
+          await supabase.from('youtube_videos').upsert({
+            artist,
+            title,
+            video_id: item.id,
+            channel_title: item.snippet?.channelTitle,
+            thumbnail: resultData.videos[0].thumbnail,
+            duration_iso: item.contentDetails?.duration,
+            updated_at: new Date().toISOString()
+          }, { onConflict: 'artist,title' });
+
+          return new Response(JSON.stringify(resultData), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+        console.log(`Existing video ID ${existingVideoId} is no longer valid or embeddable. Proceeding to search.`);
+      }
     }
 
     console.log(`Searching YouTube for: ${query}`);
 
-    // 1) Search for candidate videos
+    // 2) Search for candidate videos (expensive - 100 units)
     const searchUrl = new URL('https://www.googleapis.com/youtube/v3/search');
     searchUrl.searchParams.set('part', 'snippet');
     searchUrl.searchParams.set('q', query);

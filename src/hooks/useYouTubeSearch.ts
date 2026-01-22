@@ -103,7 +103,8 @@ export function useYouTubeSearch() {
               query, 
               maxResults,
               artist: track.artist,
-              title: track.title
+              title: track.title,
+              refresh: force
             },
           });
 

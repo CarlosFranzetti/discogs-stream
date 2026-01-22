@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -7,6 +8,10 @@ const corsHeaders = {
 
 const DISCOGS_CONSUMER_KEY = Deno.env.get('DISCOGS_CONSUMER_KEY')!;
 const DISCOGS_CONSUMER_SECRET = Deno.env.get('DISCOGS_CONSUMER_SECRET')!;
+const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
+const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+
+const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -19,6 +24,28 @@ serve(async (req) => {
     console.log(`Discogs API action: ${action}, username: ${username}`);
 
     const oauthHeader = generateOAuthHeader(access_token, access_token_secret);
+
+    // Caching logic for read-only actions
+    const cacheableActions = ['collection', 'wantlist', 'orders', 'release'];
+    let cacheKey = '';
+    if (cacheableActions.includes(action)) {
+      cacheKey = `discogs:${username || 'anon'}:${action}:${JSON.stringify(params || {})}`;
+      
+      const { data: cachedData } = await supabase
+        .from('search_cache')
+        .select('results')
+        .eq('query', cacheKey)
+        .gt('expires_at', new Date().toISOString())
+        .limit(1)
+        .maybeSingle();
+
+      if (cachedData) {
+        console.log(`Discogs cache hit: ${cacheKey}`);
+        return new Response(JSON.stringify(cachedData.results), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+    }
 
     if (action === 'identity') {
       const response = await fetch('https://api.discogs.com/oauth/identity', {
@@ -61,6 +88,13 @@ serve(async (req) => {
       const data = await response.json();
       console.log(`Collection: ${data.releases?.length} releases on page ${page}`);
       
+      // Store in cache
+      await supabase.from('search_cache').insert({
+        query: cacheKey,
+        results: data,
+        expires_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(), // 1 hour
+      });
+
       return new Response(JSON.stringify(data), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
@@ -87,6 +121,13 @@ serve(async (req) => {
       const data = await response.json();
       console.log(`Wantlist: ${data.wants?.length} wants on page ${page}`);
       
+      // Store in cache
+      await supabase.from('search_cache').insert({
+        query: cacheKey,
+        results: data,
+        expires_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(), // 1 hour
+      });
+
       return new Response(JSON.stringify(data), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
@@ -118,6 +159,13 @@ serve(async (req) => {
       const data = await response.json();
       console.log(`Orders: ${data.orders?.length} orders on page ${page}`);
       
+      // Store in cache
+      await supabase.from('search_cache').insert({
+        query: cacheKey,
+        results: data,
+        expires_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(), // 1 hour
+      });
+
       return new Response(JSON.stringify(data), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
@@ -143,6 +191,13 @@ serve(async (req) => {
       const data = await response.json();
       console.log(`Release ${releaseId}: ${data.title}`);
       
+      // Store in cache
+      await supabase.from('search_cache').insert({
+        query: cacheKey,
+        results: data,
+        expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(), // 24 hours for specific releases
+      });
+
       return new Response(JSON.stringify(data), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
