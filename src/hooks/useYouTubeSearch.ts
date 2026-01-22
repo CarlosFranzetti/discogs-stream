@@ -104,6 +104,13 @@ export function useYouTubeSearch() {
             return '';
           }
 
+          // Some backend failures (like quota exceeded) are returned as 200 with an error payload
+          // to avoid surfacing as a hard runtime error.
+          if (data?.error === 'quota_exceeded') {
+            markQuotaExceeded();
+            return '';
+          }
+
           const videos: YouTubeVideo[] = data.videos || [];
 
           if (videos.length > 0) {
