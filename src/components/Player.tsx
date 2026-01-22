@@ -3,10 +3,11 @@ import { useNavigate } from 'react-router-dom';
 import { usePlayer } from '@/hooks/usePlayer';
 import { useDiscogsAuth } from '@/hooks/useDiscogsAuth';
 import { useDiscogsData } from '@/hooks/useDiscogsData';
-import { useYouTubeSearch } from '@/hooks/useYouTubeSearch';
 import { useAuth } from '@/hooks/useAuth';
 import { useTrackPreferences } from '@/hooks/useTrackPreferences';
+import { useTrackMediaResolver } from '@/hooks/useTrackMediaResolver';
 import { YouTubePlayer } from './YouTubePlayer';
+import { BandcampPlayer } from './BandcampPlayer';
 import { AlbumArt } from './AlbumArt';
 import { Timeline } from './Timeline';
 import { PlayerControls } from './PlayerControls';
@@ -74,8 +75,11 @@ export function Player() {
     logout 
   } = useDiscogsAuth();
   
-  const { isLoading: isLoadingData, error: dataError, fetchAllTracks } = useDiscogsData(credentials);
-  const { searchForVideo, isSearching, prefetchVideos } = useYouTubeSearch();
+  const { isLoading: isLoadingData, error: dataError, fetchAllTracks, fetchRelease } = useDiscogsData(credentials);
+  const { resolveMediaForTrack, prefetchForTracks } = useTrackMediaResolver({
+    fetchRelease,
+    discogsUsername: credentials?.username,
+  });
   const [discogsTracks, setDiscogsTracks] = useState<Track[]>([]);
   const [hasLoadedDiscogs, setHasLoadedDiscogs] = useState(false);
   const [currentVideoId, setCurrentVideoId] = useState<string>('');
@@ -167,7 +171,9 @@ export function Player() {
     }
   }, [filteredTracks, setPlaylist]);
 
-  // Auto-search for YouTube video when track changes
+  const currentProvider = currentTrack?.playbackProvider || (currentTrack?.bandcampEmbedSrc ? 'bandcamp' : 'youtube');
+
+  // Resolve a playable media id (Bandcamp preferred when present) when track changes
   useEffect(() => {
     if (!currentTrack) return;
     
@@ -175,58 +181,87 @@ export function Player() {
     if (currentTrack.id === lastSearchedTrackId.current) return;
     lastSearchedTrackId.current = currentTrack.id;
     
-    // If track already has a youtubeId, use it immediately
-    if (currentTrack.youtubeId) {
-      console.log('Using existing youtubeId:', currentTrack.youtubeId, 'for', currentTrack.title);
+    // If we already have a provider + payload, use it immediately
+    if (currentTrack.playbackProvider === 'youtube' && currentTrack.youtubeId) {
       setCurrentVideoId(currentTrack.youtubeId);
-    } else {
-      // Search for the video
-      console.log('Searching for video:', currentTrack.artist, currentTrack.title);
-      searchForVideo(currentTrack).then((videoId) => {
-        if (videoId) {
-          console.log('Found video:', videoId);
-          setCurrentVideoId(videoId);
-          // Update the track in the playlist with the found videoId
-          setDiscogsTracks((prev) =>
-            prev.map((t) =>
-              t.id === currentTrack.id ? { ...t, youtubeId: videoId } : t
-            )
-          );
-        } else {
-          console.log('No video found for:', currentTrack.title, '- skipping');
-          setCurrentVideoId('');
-          // Skip to next track if no video found
-          skipNext();
-        }
-      });
+      return;
     }
-  }, [currentTrack, searchForVideo, skipNext]);
+    if (currentTrack.playbackProvider === 'bandcamp' && currentTrack.bandcampEmbedSrc) {
+      setCurrentVideoId('');
+      return;
+    }
 
-  // Pre-fetch YouTube IDs for next 4 tracks in the queue
+    if (currentTrack.youtubeId) {
+      // Back-compat: existing youtubeId without provider.
+      setCurrentVideoId(currentTrack.youtubeId);
+      setDiscogsTracks((prev) =>
+        prev.map((t) => (t.id === currentTrack.id ? { ...t, playbackProvider: 'youtube' } : t))
+      );
+    } else if (currentTrack.bandcampEmbedSrc) {
+      setCurrentVideoId('');
+      setDiscogsTracks((prev) =>
+        prev.map((t) => (t.id === currentTrack.id ? { ...t, playbackProvider: 'bandcamp' } : t))
+      );
+    } else {
+      let cancelled = false;
+      console.log('Resolving media for:', currentTrack.artist, currentTrack.title);
+
+      resolveMediaForTrack(currentTrack).then((media) => {
+        if (cancelled) return;
+
+        if (media.provider === 'youtube') {
+          setCurrentVideoId(media.youtubeId);
+          setDiscogsTracks((prev) =>
+            prev.map((t) => (t.id === currentTrack.id ? { ...t, youtubeId: media.youtubeId, playbackProvider: 'youtube' } : t))
+          );
+          return;
+        }
+        if (media.provider === 'bandcamp') {
+          setCurrentVideoId('');
+          setDiscogsTracks((prev) =>
+            prev.map((t) => (t.id === currentTrack.id ? { ...t, bandcampEmbedSrc: media.bandcampEmbedSrc, bandcampUrl: media.bandcampUrl, playbackProvider: 'bandcamp' } : t))
+          );
+          return;
+        }
+
+        console.log('No playable media found for:', currentTrack.title, '- skipping');
+        setCurrentVideoId('');
+        skipNext();
+      });
+
+      return () => {
+        cancelled = true;
+      };
+    }
+  }, [currentTrack, resolveMediaForTrack, skipNext]);
+
+  // Bandcamp iframes aren't controllable like the YouTube player, so we best-effort auto-advance.
+  useEffect(() => {
+    if (!currentTrack) return;
+    if (currentProvider !== 'bandcamp') return;
+    if (!isPlaying) return;
+
+    const ms = Math.max(5, currentTrack.duration || 240) * 1000;
+    const t = window.setTimeout(() => skipNext(), ms);
+    return () => window.clearTimeout(t);
+  }, [currentProvider, currentTrack?.id, currentTrack?.duration, isPlaying, skipNext]);
+
+  // Pre-fetch media candidates for next 4 tracks in the queue
   useEffect(() => {
     if (!playlist.length || currentIndex < 0) return;
 
     const upcomingTracks = playlist
       .slice(currentIndex + 1, currentIndex + 5)
-      .filter((t) => !t.youtubeId && !prefetchedRef.current.has(t.id));
+      .filter((t) => !t.youtubeId && !t.bandcampEmbedSrc && !!t.discogsReleaseId && !prefetchedRef.current.has(t.id));
 
     if (upcomingTracks.length === 0) return;
 
     // Mark as being prefetched
     upcomingTracks.forEach((t) => prefetchedRef.current.add(t.id));
 
-    console.log('Pre-fetching YouTube IDs for', upcomingTracks.length, 'upcoming tracks');
-    prefetchVideos(upcomingTracks).then((results) => {
-      if (results.size > 0) {
-        setDiscogsTracks((prev) =>
-          prev.map((t) => {
-            const videoId = results.get(t.id);
-            return videoId ? { ...t, youtubeId: videoId } : t;
-          })
-        );
-      }
-    });
-  }, [currentIndex, playlist, prefetchVideos]);
+    console.log('Pre-fetching media candidates for', upcomingTracks.length, 'upcoming tracks');
+    prefetchForTracks(upcomingTracks);
+  }, [currentIndex, playlist, prefetchForTracks]);
 
   const handlePlayerStateChange = (state: number) => {
     // YT.PlayerState.ENDED = 0
@@ -272,21 +307,22 @@ export function Player() {
       }
 
       fallbackAttemptedRef.current.add(currentTrack.id);
-      console.warn('Embed blocked (code', code, ') - searching for embeddable alternative for:', currentTrack.title);
+      console.warn('Embed blocked (code', code, ') - trying an alternative for:', currentTrack.title);
 
-      const altId = await searchForVideo(currentTrack, { force: true, maxResults: 8 });
+      const preferDifferentFromYoutubeId = currentVideoId || currentTrack.youtubeId;
+      const alt = await resolveMediaForTrack(currentTrack, { preferDifferentFromYoutubeId });
 
-      if (altId) {
-        setCurrentVideoId(altId);
+      if (alt.provider === 'youtube') {
+        setCurrentVideoId(alt.youtubeId);
         setDiscogsTracks((prev) =>
-          prev.map((t) => (t.id === currentTrack.id ? { ...t, youtubeId: altId } : t))
+          prev.map((t) => (t.id === currentTrack.id ? { ...t, youtubeId: alt.youtubeId, playbackProvider: 'youtube' } : t))
         );
         return;
       }
 
       skipNext();
     },
-    [currentTrack, searchForVideo, skipNext]
+    [currentTrack, currentVideoId, resolveMediaForTrack, skipNext]
   );
 
   // Show loading state when authenticating with Discogs
@@ -418,24 +454,19 @@ export function Player() {
             onClick={togglePlay}
           />
 
-          {/* YouTube player as PIP in corner */}
-          <YouTubePlayer
-            videoId={currentVideoId || currentTrack.youtubeId}
-            searchQuery={!currentVideoId && !currentTrack.youtubeId ? `${currentTrack.artist} ${currentTrack.title}` : undefined}
-            isPlaying={isPlaying}
-            showVideo={false}
-            playerRef={playerRef}
-            onStateChange={handlePlayerStateChange}
-            onError={handlePlayerError}
-            onReady={() => {}}
-          />
-
-          {/* YouTube search indicator */}
-          {isSearching && (
-            <div className="absolute top-3 left-3 z-30 flex items-center gap-2 bg-background/80 backdrop-blur-sm rounded-full px-2.5 py-1">
-              <Loader2 className="w-3 h-3 animate-spin text-primary" />
-              <span className="text-xs text-muted-foreground">Finding video...</span>
-            </div>
+          {currentProvider === 'bandcamp' && currentTrack.bandcampEmbedSrc ? (
+            <BandcampPlayer embedSrc={currentTrack.bandcampEmbedSrc} show={false} />
+          ) : (
+            <YouTubePlayer
+              videoId={currentVideoId || currentTrack.youtubeId}
+              searchQuery={!currentVideoId && !currentTrack.youtubeId ? `${currentTrack.artist} ${currentTrack.title}` : undefined}
+              isPlaying={isPlaying}
+              showVideo={false}
+              playerRef={playerRef}
+              onStateChange={handlePlayerStateChange}
+              onError={handlePlayerError}
+              onReady={() => {}}
+            />
           )}
         </div>
 
@@ -482,13 +513,19 @@ export function Player() {
             </div>
           </div>
           
-          <div className="max-w-md mx-auto w-full py-2">
-            <Timeline
-              currentTime={currentTime}
-              duration={currentTrack.duration}
-              onSeek={seekTo}
-            />
-          </div>
+          {currentProvider === 'youtube' ? (
+            <div className="max-w-md mx-auto w-full py-2">
+              <Timeline
+                currentTime={currentTime}
+                duration={currentTrack.duration}
+                onSeek={seekTo}
+              />
+            </div>
+          ) : (
+            <div className="max-w-md mx-auto w-full py-2 text-center text-xs text-muted-foreground">
+              Bandcamp playback uses the embedded player controls.
+            </div>
+          )}
 
           <PlayerControls
             isPlaying={isPlaying}

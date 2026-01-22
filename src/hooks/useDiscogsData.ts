@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
 import { Track } from '@/types/track';
+import { parseDiscogsDurationToSeconds } from '@/lib/discogs';
 
 interface DiscogsCredentials {
   access_token: string;
@@ -35,6 +36,19 @@ interface DiscogsWant {
     genres: string[];
     styles: string[];
   };
+}
+
+interface DiscogsReleaseDetails {
+  id: number;
+  title?: string;
+  year?: number;
+  tracklist?: Array<{
+    position?: string;
+    title?: string;
+    duration?: string;
+    type_?: string;
+    artists?: Array<{ name?: string }>;
+  }>;
 }
 
 export function useDiscogsData(credentials: DiscogsCredentials | null) {
@@ -78,7 +92,7 @@ export function useDiscogsData(credentials: DiscogsCredentials | null) {
     const cleanArtistName = artistName.replace(/\s*\(\d+\)$/, '');
     
     return {
-      id: `${source}-${info.id}`,
+      id: `${source}-${release.id}`,
       title: info.title,
       artist: cleanArtistName,
       album: info.title,
@@ -87,10 +101,69 @@ export function useDiscogsData(credentials: DiscogsCredentials | null) {
       label: info.labels?.[0]?.name || 'Unknown',
       duration: 240, // Default duration, will be updated when YouTube video loads
       coverUrl: info.cover_image || info.thumb || '/placeholder.svg',
-      youtubeId: '', // Will be populated by YouTube search
+      youtubeId: '', // Populated later from Discogs release video links (or user input).
+      discogsReleaseId: info.id,
       source,
     };
   };
+
+  const fetchRelease = useCallback(async (releaseId: number) => {
+    return callApi('release', { release_id: releaseId });
+  }, [callApi]);
+
+  const expandReleaseToTracks = useCallback(async (
+    release: DiscogsRelease | DiscogsWant,
+    source: Track['source']
+  ): Promise<Track[]> => {
+    const info = release.basic_information;
+    const artistName = info.artists?.[0]?.name || 'Unknown Artist';
+    const cleanArtistName = artistName.replace(/\s*\(\d+\)$/, '');
+
+    const releaseId = info.id;
+    const coverUrl = info.cover_image || info.thumb || '/placeholder.svg';
+    const album = info.title;
+    const year = info.year || 0;
+    const genre = info.genres?.[0] || info.styles?.[0] || 'Unknown';
+    const label = info.labels?.[0]?.name || 'Unknown';
+
+    const details = (await fetchRelease(releaseId)) as DiscogsReleaseDetails;
+    const tracklist = Array.isArray(details?.tracklist) ? details.tracklist : [];
+
+    const tracks: Track[] = [];
+    let idx = 0;
+
+    for (const t of tracklist) {
+      if (t?.type_ && t.type_ !== 'track') continue;
+      const title = (t?.title || '').trim();
+      if (!title) continue;
+
+      const pos = (t?.position || '').trim();
+      const duration = parseDiscogsDurationToSeconds(t?.duration || '') ?? 240;
+      const trackArtistRaw = t?.artists?.[0]?.name || cleanArtistName;
+      const trackArtist = (trackArtistRaw || 'Unknown Artist').replace(/\s*\(\d+\)$/, '');
+
+      const position = pos || String(idx + 1);
+      tracks.push({
+        id: `${source}-${releaseId}-${position}`,
+        title,
+        artist: trackArtist,
+        album,
+        year,
+        genre,
+        label,
+        duration,
+        coverUrl,
+        youtubeId: '',
+        discogsReleaseId: releaseId,
+        discogsTrackPosition: position,
+        discogsTrackIndex: idx,
+        source,
+      });
+      idx += 1;
+    }
+
+    return tracks;
+  }, [fetchRelease]);
 
   const fetchCollection = useCallback(async (page = 1, perPage = 50): Promise<{ tracks: Track[]; hasMore: boolean }> => {
     setIsLoading(true);
@@ -151,24 +224,38 @@ export function useDiscogsData(credentials: DiscogsCredentials | null) {
     setError(null);
     
     try {
-      const [collectionResult, wantlistResult] = await Promise.all([
-        fetchCollection(1, maxPerSource),
-        fetchWantlist(1, maxPerSource),
+      const [collectionRaw, wantlistRaw] = await Promise.all([
+        callApi('collection', { page: 1, per_page: maxPerSource }),
+        callApi('wantlist', { page: 1, per_page: maxPerSource }),
       ]);
 
-      const allTracks = [...collectionResult.tracks, ...wantlistResult.tracks];
-      
+      const collectionReleases = (collectionRaw?.releases || []) as DiscogsRelease[];
+      const wantReleases = (wantlistRaw?.wants || []) as DiscogsWant[];
+
+      const allReleases: Array<{ r: DiscogsRelease | DiscogsWant; source: Track['source'] }> = [
+        ...collectionReleases.map((r) => ({ r, source: 'collection' as const })),
+        ...wantReleases.map((r) => ({ r, source: 'wantlist' as const })),
+      ];
+
+      const expanded: Track[] = [];
+
+      // Limit concurrency to avoid hammering the edge function.
+      const concurrency = 3;
+      for (let i = 0; i < allReleases.length; i += concurrency) {
+        const batch = allReleases.slice(i, i + concurrency);
+        const batchTracks = await Promise.all(batch.map((x) => expandReleaseToTracks(x.r, x.source)));
+        for (const list of batchTracks) expanded.push(...list);
+      }
+
       // Shuffle the tracks
-      const shuffled = allTracks.sort(() => Math.random() - 0.5);
-      
-      return shuffled;
+      return expanded.sort(() => Math.random() - 0.5);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch tracks');
       return [];
     } finally {
       setIsLoading(false);
     }
-  }, [fetchCollection, fetchWantlist]);
+  }, [callApi, expandReleaseToTracks]);
 
   return {
     isLoading,
@@ -177,5 +264,6 @@ export function useDiscogsData(credentials: DiscogsCredentials | null) {
     fetchWantlist,
     fetchPurchaseHistory,
     fetchAllTracks,
+    fetchRelease,
   };
 }

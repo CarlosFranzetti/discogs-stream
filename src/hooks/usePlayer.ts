@@ -1,5 +1,4 @@
-/// <reference path="../types/youtube.d.ts" />
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { Track } from '@/types/track';
 import { mockTracks, shuffleTracks } from '@/data/mockTracks';
 
@@ -22,12 +21,30 @@ export function usePlayer(initialTracks?: Track[], dislikedTracks?: Track[]) {
 
   // Update playlist when initialTracks changes, filtering out disliked tracks
   useEffect(() => {
-    if (initialTracks && initialTracks.length > 0) {
-      const dislikedIds = new Set((dislikedTracks || []).map(t => t.id));
-      const filtered = initialTracks.filter(t => !dislikedIds.has(t.id));
-      setPlaylist(shuffleTracks(filtered));
-      setCurrentIndex(0);
-    }
+    if (!initialTracks || initialTracks.length === 0) return;
+
+    const dislikedIds = new Set((dislikedTracks || []).map(t => t.id));
+    const filtered = initialTracks.filter(t => !dislikedIds.has(t.id));
+    
+    setPlaylist(prev => {
+      // If the playlist is empty, initialize it
+      if (prev.length === 0) {
+        return shuffleTracks(filtered);
+      }
+
+      // Check if we are just adding new verified tracks
+      const prevIds = new Set(prev.map(t => t.id));
+      const newTracks = filtered.filter(t => !prevIds.has(t.id));
+      
+      if (newTracks.length === 0) {
+        // No new tracks to add, but maybe some were removed (disliked)
+        const stillPresent = prev.filter(t => !dislikedIds.has(t.id));
+        return stillPresent.length !== prev.length ? stillPresent : prev;
+      }
+
+      // Append new tracks (shuffled) to the end of the existing playlist
+      return [...prev, ...shuffleTracks(newTracks)];
+    });
   }, [initialTracks, dislikedTracks]);
 
   const updateTime = useCallback(() => {

@@ -15,7 +15,7 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 function isQuotaExceededPayload(errorText: string): boolean {
   try {
     const parsed = JSON.parse(errorText);
-    const reasons = (parsed?.error?.errors || []).map((e: any) => e?.reason).filter(Boolean);
+    const reasons = (parsed?.error?.errors || []).map((e: { reason?: string }) => e?.reason).filter(Boolean);
     return reasons.includes('quotaExceeded') || reasons.includes('dailyLimitExceeded');
   } catch {
     return /quotaExceeded|dailyLimitExceeded|exceeded.*quota/i.test(errorText);
@@ -180,8 +180,8 @@ serve(async (req) => {
     const nextPageToken = searchData.nextPageToken;
 
     const candidateIds: string[] = items
-      .map((item: any) => item?.id?.videoId)
-      .filter(Boolean);
+      .map((item: { id?: { videoId?: string } }) => item?.id?.videoId)
+      .filter(Boolean) as string[];
 
     if (candidateIds.length === 0) {
        // Cache empty result
@@ -233,8 +233,8 @@ serve(async (req) => {
     const videosData = await videosResponse.json();
 
     const embeddable = (videosData.items || [])
-      .filter((item: any) => item?.status?.embeddable === true)
-      .map((item: any) => ({
+      .filter((item: { status?: { embeddable?: boolean } }) => item?.status?.embeddable === true)
+      .map((item: { id: string; snippet?: { title?: string; channelTitle?: string; thumbnails?: { medium?: { url?: string }; default?: { url?: string } } }; contentDetails?: { duration?: string } }) => ({
         videoId: item.id,
         title: item.snippet?.title,
         channelTitle: item.snippet?.channelTitle,

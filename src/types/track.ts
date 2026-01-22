@@ -9,6 +9,13 @@ export interface Track {
   duration: number; // in seconds
   coverUrl: string;
   youtubeId: string;
+  bandcampEmbedSrc?: string;
+  bandcampUrl?: string;
+  playbackProvider?: 'youtube' | 'bandcamp';
+  // Discogs release ID (used to fetch release details like video links).
+  discogsReleaseId?: number;
+  discogsTrackPosition?: string;
+  discogsTrackIndex?: number;
   source: 'collection' | 'wantlist' | 'similar';
   liked?: boolean;
   disliked?: boolean;

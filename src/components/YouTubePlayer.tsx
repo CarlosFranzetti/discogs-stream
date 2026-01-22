@@ -1,5 +1,4 @@
-/// <reference path="../types/youtube.d.ts" />
-import { useEffect, useRef, MutableRefObject, useState } from 'react';
+import React, { useEffect, useRef, useState, type MutableRefObject } from 'react';
 
 interface YouTubePlayerProps {
   videoId: string;
@@ -54,6 +53,7 @@ export function YouTubePlayer({
       const playerOptions: YT.PlayerOptions = {
         height: '100%',
         width: '100%',
+        host: 'https://www.youtube-nocookie.com',
         playerVars: {
           autoplay: 1,
           controls: 0,
@@ -63,6 +63,7 @@ export function YouTubePlayer({
           showinfo: 0,
           iv_load_policy: 3,
           playsinline: 1,
+          origin: window.location.origin,
         },
         events: {
           onReady: (event) => {

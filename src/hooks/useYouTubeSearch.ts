@@ -109,7 +109,7 @@ export function useYouTubeSearch() {
           });
 
           if (error) {
-            const status = (error as any)?.context?.status;
+            const status = (error as { context?: { status?: number } })?.context?.status;
             const msg = String(error.message || 'YouTube search failed');
             console.error('YouTube search failed:', msg);
 

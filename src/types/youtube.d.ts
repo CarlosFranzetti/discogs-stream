@@ -1,7 +1,8 @@
 /// <reference types="youtube" />
 
 declare namespace YT {
-  interface Player {
+  class Player {
+    constructor(elementId: string | HTMLElement, options: PlayerOptions);
     playVideo(): void;
     pauseVideo(): void;
     stopVideo(): void;
@@ -42,10 +43,6 @@ declare namespace YT {
       onStateChange?: (event: PlayerEvent) => void;
       onError?: (event: PlayerEvent) => void;
     };
-  }
-
-  class Player {
-    constructor(elementId: string | HTMLElement, options: PlayerOptions);
   }
 
   const PlayerState: {
