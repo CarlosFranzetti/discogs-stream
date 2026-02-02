@@ -1,0 +1,11 @@
+node_modules
+dist
+.git
+.DS_Store
+supabase
+src/test
+src/**/__tests__
+**/*.test.*
+**/*.spec.*
+*.log
+
