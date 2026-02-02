@@ -25,7 +25,8 @@ dist-ssr
 
 .gemini/
 gha-creds-*.json
+
+# Environment variables
 .env
-.env
-.env
-.env
+.env.*
+!.env.example
