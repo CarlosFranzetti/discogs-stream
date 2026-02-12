@@ -7,6 +7,8 @@ import { useAuth } from '@/hooks/useAuth';
 import { useTrackPreferences } from '@/hooks/useTrackPreferences';
 import { useTrackMediaResolver } from '@/hooks/useTrackMediaResolver';
 import { useCSVCollection } from '@/hooks/useCSVCollection';
+import { useYouTubeSearch } from '@/hooks/useYouTubeSearch';
+import { useBackgroundVerifier } from '@/hooks/useBackgroundVerifier';
 import { YouTubePlayer } from './YouTubePlayer';
 import { BandcampPlayer } from './BandcampPlayer';
 import { AlbumArt } from './AlbumArt';
@@ -93,7 +95,17 @@ export function Player() {
     loadCollectionCSV,
     loadWantlistCSV,
     clearAll: clearCSVData,
+    updateTrack,
   } = useCSVCollection();
+  const {
+    searchForVideo,
+    isSearching,
+    prefetchVideos,
+    markAsUnavailable,
+    isQuotaExceeded,
+    clearCache,
+    getSearchUrl,
+  } = useYouTubeSearch();
   const [discogsTracks, setDiscogsTracks] = useState<Track[]>([]);
 
   // Merge CSV tracks with Discogs tracks
@@ -106,6 +118,19 @@ export function Player() {
       });
     }
   }, [csvAllTracks]);
+  
+  // Verification is now handled by the hook
+  const [verifiedTracks, setVerifiedTracks] = useState<Track[]>([]);
+  const verifiedTracksRef = useRef<Track[]>([]);
+  
+  // Sync verified tracks with discogsTracks
+  useEffect(() => {
+     setVerifiedTracks(discogsTracks);
+  }, [discogsTracks]);
+
+  useEffect(() => {
+    verifiedTracksRef.current = verifiedTracks;
+  }, [verifiedTracks]);
   const [lastFetchedKey, setLastFetchedKey] = useState<string | null>(null);
   const cacheHydratedRef = useRef<string | null>(null);
   const discogsTracksRef = useRef<Track[]>([]);
@@ -120,21 +145,21 @@ export function Player() {
     discogsTracksRef.current = discogsTracks;
   }, [discogsTracks]);
 
-  // Filter tracks by active sources
+  // Filter tracks by active sources - use verified tracks only
   const filteredTracks = useMemo(() => {
-    return discogsTracks.filter(track => activeSources.includes(track.source));
-  }, [discogsTracks, activeSources]);
+    return verifiedTracks.filter(track => activeSources.includes(track.source));
+  }, [verifiedTracks, activeSources]);
 
   // Track counts per source
   const trackCounts = useMemo(() => {
     const counts: Record<SourceType, number> = { collection: 0, wantlist: 0, similar: 0 };
-    discogsTracks.forEach(track => {
+    verifiedTracks.forEach(track => {
       if (track.source in counts) {
         counts[track.source]++;
       }
     });
     return counts;
-  }, [discogsTracks]);
+  }, [verifiedTracks]);
 
   const handleToggleSource = useCallback((source: SourceType) => {
     setActiveSources(prev => {
@@ -169,6 +194,32 @@ export function Player() {
     isShuffle,
     toggleShuffle,
   } = usePlayer(filteredTracks, persistedDislikedTracks);
+
+  // Comprehensive update function that handles both CSV and Discogs tracks
+  const updateTrackWithVerification = useCallback((updatedTrack: Track) => {
+    // Update CSV tracks in localStorage via useCSVCollection
+    updateTrack(updatedTrack);
+    
+    // Also update verifiedTracks state for immediate UI update (works for all tracks)
+    setVerifiedTracks(prev => {
+      const idx = prev.findIndex(t => t.id === updatedTrack.id);
+      if (idx === -1) return prev;
+      const newTracks = [...prev];
+      newTracks[idx] = updatedTrack;
+      return newTracks;
+    });
+  }, [updateTrack]);
+
+  // Background Verifier Hook
+  const { isVerifying, progress: verifyProgress } = useBackgroundVerifier({
+    tracks: verifiedTracks,
+    currentTrack: playlist[currentIndex] || null,
+    isPlaying,
+    searchForVideo,
+    resolveMediaForTrack,
+    updateTrack: updateTrackWithVerification,
+    isQuotaExceeded
+  });
 
   // Like/dislike handlers that persist to database
   const handleLikeTrack = useCallback(() => {
