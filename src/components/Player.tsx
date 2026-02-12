@@ -99,12 +99,7 @@ export function Player() {
   } = useCSVCollection();
   const {
     searchForVideo,
-    isSearching,
-    prefetchVideos,
-    markAsUnavailable,
     isQuotaExceeded,
-    clearCache,
-    getSearchUrl,
   } = useYouTubeSearch();
   const [discogsTracks, setDiscogsTracks] = useState<Track[]>([]);
 
@@ -119,18 +114,13 @@ export function Player() {
     }
   }, [csvAllTracks]);
   
-  // Verification is now handled by the hook
+  // Tracks with background-loaded cover art and YouTube IDs
   const [verifiedTracks, setVerifiedTracks] = useState<Track[]>([]);
-  const verifiedTracksRef = useRef<Track[]>([]);
   
   // Sync verified tracks with discogsTracks
   useEffect(() => {
      setVerifiedTracks(discogsTracks);
   }, [discogsTracks]);
-
-  useEffect(() => {
-    verifiedTracksRef.current = verifiedTracks;
-  }, [verifiedTracks]);
   const [lastFetchedKey, setLastFetchedKey] = useState<string | null>(null);
   const cacheHydratedRef = useRef<string | null>(null);
   const discogsTracksRef = useRef<Track[]>([]);
@@ -145,7 +135,7 @@ export function Player() {
     discogsTracksRef.current = discogsTracks;
   }, [discogsTracks]);
 
-  // Filter tracks by active sources - use verified tracks only
+  // Filter tracks by active sources
   const filteredTracks = useMemo(() => {
     return verifiedTracks.filter(track => activeSources.includes(track.source));
   }, [verifiedTracks, activeSources]);
