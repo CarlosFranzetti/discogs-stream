@@ -149,6 +149,21 @@ export function MobilePlayer() {
     toggleShuffle,
   } = usePlayer(filteredTracks, persistedDislikedTracks);
 
+  // Comprehensive update function that handles both CSV and Discogs tracks
+  const updateTrackWithVerification = useCallback((updatedTrack: Track) => {
+    // Update CSV tracks in localStorage via useCSVCollection
+    updateTrack(updatedTrack);
+    
+    // Also update verifiedTracks state for immediate UI update (works for all tracks)
+    setVerifiedTracks(prev => {
+      const idx = prev.findIndex(t => t.id === updatedTrack.id);
+      if (idx === -1) return prev;
+      const newTracks = [...prev];
+      newTracks[idx] = updatedTrack;
+      return newTracks;
+    });
+  }, [updateTrack]);
+
   // Background Verifier Hook
   const { isVerifying, progress: verifyProgress } = useBackgroundVerifier({
     tracks: verifiedTracks, // Use verifiedTracks which now mirrors discogsTracks
@@ -156,7 +171,7 @@ export function MobilePlayer() {
     isPlaying,
     searchForVideo,
     resolveMediaForTrack,
-    updateTrack,
+    updateTrack: updateTrackWithVerification,
     isQuotaExceeded
   });
 
