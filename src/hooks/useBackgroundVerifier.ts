@@ -100,6 +100,9 @@ export function useBackgroundVerifier({
       try {
         console.log(`[Verifier] Processing: ${track.artist} - ${track.title}`);
         
+        // Clone the track to avoid mutating the original
+        const updatedTrack = { ...track };
+        let changed = false;
         let videoId = '';
         let foundViaResolver = false;
 
