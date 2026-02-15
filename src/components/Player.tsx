@@ -234,21 +234,16 @@ export function Player() {
       const target = e.target as HTMLElement;
       if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
 
-      switch (e.key) {
-        case ' ':
-          e.preventDefault();
-          togglePlay();
-          break;
-        case ',':
-        case '<':
-          e.preventDefault();
-          skipPrev();
-          break;
-        case '.':
-        case '>':
-          e.preventDefault();
-          skipNext();
-          break;
+      // Check both e.key and e.code for better compatibility
+      if (e.key === ' ' || e.code === 'Space') {
+        e.preventDefault();
+        togglePlay();
+      } else if (e.key === ',' || e.key === '<' || e.code === 'Comma') {
+        e.preventDefault();
+        skipPrev();
+      } else if (e.key === '.' || e.key === '>' || e.code === 'Period') {
+        e.preventDefault();
+        skipNext();
       }
     };
 
