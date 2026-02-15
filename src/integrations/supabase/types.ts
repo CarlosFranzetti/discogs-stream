@@ -12,8 +12,132 @@ export type Database = {
   __InternalSupabase: {
     PostgrestVersion: "14.1"
   }
+  graphql_public: {
+    Tables: {
+      [_ in never]: never
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      graphql: {
+        Args: {
+          extensions?: Json
+          operationName?: string
+          query?: string
+          variables?: Json
+        }
+        Returns: Json
+      }
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
+  }
   public: {
     Tables: {
+      release_cover_art: {
+        Row: {
+          cover_url: string | null
+          created_at: string | null
+          release_id: number
+          thumb_url: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          cover_url?: string | null
+          created_at?: string | null
+          release_id: number
+          thumb_url?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          cover_url?: string | null
+          created_at?: string | null
+          release_id?: number
+          thumb_url?: string | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
+      search_cache: {
+        Row: {
+          created_at: string
+          expires_at: string
+          id: string
+          page_token: string | null
+          query: string
+          results: Json
+        }
+        Insert: {
+          created_at?: string
+          expires_at: string
+          id?: string
+          page_token?: string | null
+          query: string
+          results: Json
+        }
+        Update: {
+          created_at?: string
+          expires_at?: string
+          id?: string
+          page_token?: string | null
+          query?: string
+          results?: Json
+        }
+        Relationships: []
+      }
+      track_media_links: {
+        Row: {
+          album: string | null
+          artist: string | null
+          bandcamp_embed_src: string | null
+          bandcamp_url: string | null
+          created_at: string | null
+          discogs_release_id: number
+          discogs_username: string
+          id: string
+          provider: string
+          track_position: string
+          track_title: string | null
+          updated_at: string | null
+          youtube_id: string | null
+        }
+        Insert: {
+          album?: string | null
+          artist?: string | null
+          bandcamp_embed_src?: string | null
+          bandcamp_url?: string | null
+          created_at?: string | null
+          discogs_release_id: number
+          discogs_username: string
+          id?: string
+          provider: string
+          track_position: string
+          track_title?: string | null
+          updated_at?: string | null
+          youtube_id?: string | null
+        }
+        Update: {
+          album?: string | null
+          artist?: string | null
+          bandcamp_embed_src?: string | null
+          bandcamp_url?: string | null
+          created_at?: string | null
+          discogs_release_id?: number
+          discogs_username?: string
+          id?: string
+          provider?: string
+          track_position?: string
+          track_title?: string | null
+          updated_at?: string | null
+          youtube_id?: string | null
+        }
+        Relationships: []
+      }
       track_preferences: {
         Row: {
           album: string | null
@@ -53,6 +177,42 @@ export type Database = {
           track_id?: string
           updated_at?: string
           user_id?: string
+        }
+        Relationships: []
+      }
+      youtube_videos: {
+        Row: {
+          artist: string
+          channel_title: string | null
+          created_at: string | null
+          duration_iso: string | null
+          id: string
+          thumbnail: string | null
+          title: string
+          updated_at: string | null
+          video_id: string
+        }
+        Insert: {
+          artist: string
+          channel_title?: string | null
+          created_at?: string | null
+          duration_iso?: string | null
+          id?: string
+          thumbnail?: string | null
+          title: string
+          updated_at?: string | null
+          video_id: string
+        }
+        Update: {
+          artist?: string
+          channel_title?: string | null
+          created_at?: string | null
+          duration_iso?: string | null
+          id?: string
+          thumbnail?: string | null
+          title?: string
+          updated_at?: string | null
+          video_id?: string
         }
         Relationships: []
       }
@@ -190,6 +350,9 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
+  graphql_public: {
+    Enums: {},
+  },
   public: {
     Enums: {},
   },

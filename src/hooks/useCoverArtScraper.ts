@@ -136,27 +136,18 @@ export function useCoverArtScraper() {
       return cachedUrl;
     }
 
-    // If not in DB, fetch from Discogs API
+    // If not in DB, fetch from Discogs API using Supabase client for auth
     try {
-      const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/discogs-public`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ release_id: releaseId }),
-          signal: abortControllerRef.current?.signal,
-        }
-      );
+      const { data, error } = await supabase.functions.invoke('discogs-public', {
+        body: { release_id: releaseId },
+      });
 
-      if (!response.ok) {
-        console.warn(`Failed to fetch cover art for release ${releaseId}`);
+      if (error) {
+        console.warn(`Failed to fetch cover art for release ${releaseId}:`, error.message);
         return null;
       }
 
-      const data = await response.json();
-      const coverUrl = data.cover_image || data.thumb;
+      const coverUrl = data?.cover_image || data?.thumb;
 
       if (coverUrl) {
         // Store in database for future use
