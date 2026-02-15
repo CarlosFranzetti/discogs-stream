@@ -30,3 +30,4 @@ gha-creds-*.json
 .env
 .env.*
 !.env.example
+supabase/.temp/
