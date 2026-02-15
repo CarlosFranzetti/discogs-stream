@@ -78,11 +78,6 @@ export function useYouTubeSearch() {
         return pendingSearches.current.get(cacheKey)!;
       }
 
-       // If we've already hit YouTube quota this session, avoid hammering the backend.
-       if (!force && quotaExceededRef.current) {
-        return '';
-      }
-
       // Throttle requests
       const now = Date.now();
       const timeSinceLastSearch = now - lastSearchTime.current;

@@ -87,7 +87,7 @@ export function useCoverArtScraper() {
       tracks.forEach(track => {
         if (track.discogsReleaseId && coverMap.has(track.discogsReleaseId)) {
           const coverUrl = coverMap.get(track.discogsReleaseId)!;
-          onTrackUpdate({ ...track, coverUrl });
+          onTrackUpdate({ ...track, coverUrl, coverUrls: [coverUrl] });
           updateCount++;
         }
       });
@@ -208,7 +208,7 @@ export function useCoverArtScraper() {
 
         const coverUrl = await fetchCoverArt(firstTrack.discogsReleaseId!);
         if (coverUrl) {
-          onTrackUpdate({ ...firstTrack, coverUrl });
+          onTrackUpdate({ ...firstTrack, coverUrl, coverUrls: [coverUrl] });
           successCount++;
         }
 
@@ -235,7 +235,7 @@ export function useCoverArtScraper() {
 
         const coverUrl = await fetchCoverArt(track.discogsReleaseId!);
         if (coverUrl) {
-          onTrackUpdate({ ...track, coverUrl });
+          onTrackUpdate({ ...track, coverUrl, coverUrls: [coverUrl] });
           successCount++;
         }
 

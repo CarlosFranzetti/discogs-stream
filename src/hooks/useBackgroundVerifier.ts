@@ -1,13 +1,19 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { Track } from '@/types/track';
-import { calculateSimilarity } from '@/lib/utils';
 
 interface UseBackgroundVerifierProps {
   tracks: Track[];
   currentTrack: Track | null;
   isPlaying: boolean;
-  searchForVideo: (track: Track, options?: { force?: boolean }) => Promise<string>;
-  resolveMediaForTrack?: (track: Track) => Promise<{ provider: 'youtube' | 'bandcamp' | null; youtubeId?: string; bandcampEmbedSrc?: string }>;
+  searchForVideo: (track: Track, options?: { force?: boolean; maxResults?: number }) => Promise<string>;
+  resolveMediaForTrack?: (track: Track) => Promise<{
+    provider: 'youtube' | 'bandcamp' | null;
+    youtubeId?: string;
+    youtubeCandidates?: string[];
+    bandcampEmbedSrc?: string;
+    coverUrl?: string;
+    coverUrls?: string[];
+  }>;
   updateTrack: (track: Track) => void;
   isQuotaExceeded: boolean;
 }
@@ -15,7 +21,7 @@ interface UseBackgroundVerifierProps {
 export function useBackgroundVerifier({
   tracks,
   currentTrack,
-  isPlaying,
+  isPlaying: _isPlaying,
   searchForVideo,
   resolveMediaForTrack,
   updateTrack,
@@ -102,16 +108,27 @@ export function useBackgroundVerifier({
         // Clone the track to avoid mutating the original
         const updatedTrack = { ...track };
         let changed = false;
-        let videoId = '';
-        let foundViaResolver = false;
+        let videoId = updatedTrack.youtubeId || '';
 
         // 1. Try cheap resolution first (Discogs metadata / Cache)
         if (resolveMediaForTrack) {
            const media = await resolveMediaForTrack(track);
            if (media.provider === 'youtube' && media.youtubeId) {
              videoId = media.youtubeId;
-             foundViaResolver = true;
              console.log(`[Verifier] Resolved via Discogs/Cache: ${videoId}`);
+             if (media.youtubeCandidates?.length) {
+               updatedTrack.youtubeCandidates = media.youtubeCandidates;
+               changed = true;
+             }
+           }
+
+           if (media.coverUrl && (!updatedTrack.coverUrl || updatedTrack.coverUrl === '/placeholder.svg' || updatedTrack.coverUrl.includes('placeholder'))) {
+             updatedTrack.coverUrl = media.coverUrl;
+             changed = true;
+           }
+           if (media.coverUrls?.length) {
+             updatedTrack.coverUrls = media.coverUrls;
+             changed = true;
            }
         }
 
@@ -125,14 +142,13 @@ export function useBackgroundVerifier({
              updatedTrack.youtubeId = videoId;
              changed = true;
            }
-
-           // 3. YouTube Cover Art Fallback (Only if Discogs art is still missing)
-           const hasValidCover = updatedTrack.coverUrl && !updatedTrack.coverUrl.includes('placeholder') && updatedTrack.coverUrl !== '/placeholder.svg';
-           if (!hasValidCover) {
-              const newCover = `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`;
-              updatedTrack.coverUrl = newCover;
-              changed = true;
+           if (updatedTrack.workingStatus !== 'working') {
+             updatedTrack.workingStatus = 'working';
+             changed = true;
            }
+        } else if (updatedTrack.workingStatus !== 'non_working') {
+          updatedTrack.workingStatus = 'non_working';
+          changed = true;
         }
 
         // 4. Persist if changed
@@ -163,7 +179,7 @@ export function useBackgroundVerifier({
     }, 3000);
 
     return () => clearInterval(intervalId);
-  }, [tracks, getNextTrackToVerify, searchForVideo, updateTrack, isQuotaExceeded]);
+  }, [tracks, getNextTrackToVerify, searchForVideo, resolveMediaForTrack, updateTrack, isQuotaExceeded]);
 
   return { isVerifying, progress };
 }

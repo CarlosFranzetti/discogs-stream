@@ -8,7 +8,9 @@ export interface Track {
   label: string;
   duration: number; // in seconds
   coverUrl: string;
+  coverUrls?: string[];
   youtubeId: string;
+  youtubeCandidates?: string[];
   bandcampEmbedSrc?: string;
   bandcampUrl?: string;
   playbackProvider?: 'youtube' | 'bandcamp';
@@ -16,6 +18,8 @@ export interface Track {
   discogsReleaseId?: number;
   discogsTrackPosition?: string;
   discogsTrackIndex?: number;
+  country?: string;
+  workingStatus?: 'working' | 'non_working' | 'pending';
   source: 'collection' | 'wantlist' | 'similar';
   liked?: boolean;
   disliked?: boolean;

@@ -16,8 +16,7 @@ import { MobilePlaylistSheet } from './MobilePlaylistSheet';
 import { MobileTitleScreen } from './MobileTitleScreen';
 import { Track } from '@/types/track';
 import { readDiscogsCache, writeDiscogsCache } from '@/data/discogsCache';
-import { Loader2, Radio, Menu, Volume2 } from 'lucide-react';
-import { Slider } from '@/components/ui/slider';
+import { Loader2, Radio, Menu } from 'lucide-react';
 import { SourceType } from './SourceFilters';
 import { QuotaBanner } from './QuotaBanner';
 import { toast } from 'sonner';
@@ -25,6 +24,8 @@ import { SettingsDialog } from '@/components/SettingsDialog';
 import { useTrackMediaResolver } from '@/hooks/useTrackMediaResolver';
 import { useBackgroundVerifier } from '@/hooks/useBackgroundVerifier';
 import { useCoverArtScraper } from '@/hooks/useCoverArtScraper';
+import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
+import { resolveOwnerKey, useTrackCache, type TrackCacheRow } from '@/hooks/useTrackCache';
 
 export function MobilePlayer() {
   const navigate = useNavigate();
@@ -60,7 +61,6 @@ export function MobilePlayer() {
     searchForVideo,
     isSearching,
     prefetchVideos,
-    markAsUnavailable,
     isQuotaExceeded,
     clearCache,
     getSearchUrl,
@@ -91,6 +91,18 @@ export function MobilePlayer() {
     // Also update CSV track if it exists there
     updateCSVTrack(updatedTrack);
   }, [updateCSVTrack]);
+
+  const applyTrackPatch = useCallback((trackId: string, patch: Partial<Track>) => {
+    const normalizedPatch = Object.fromEntries(
+      Object.entries(patch).filter(([, value]) => value !== undefined)
+    ) as Partial<Track>;
+    setDiscogsTracks((prev) =>
+      prev.map((track) => (track.id === trackId ? { ...track, ...normalizedPatch } : track))
+    );
+    setVerifiedTracks((prev) =>
+      prev.map((track) => (track.id === trackId ? { ...track, ...normalizedPatch } : track))
+    );
+  }, []);
 
   // Merge CSV tracks with Discogs tracks
   useEffect(() => {
@@ -163,6 +175,13 @@ export function MobilePlayer() {
     toggleShuffle,
   } = usePlayer(filteredTracks, persistedDislikedTracks);
 
+  // Keyboard shortcuts
+  useKeyboardShortcuts({
+    onTogglePlay: togglePlay,
+    onSkipPrev: skipPrev,
+    onSkipNext: skipNext
+  });
+
   // Background Verifier Hook
   const { isVerifying, progress: verifyProgress } = useBackgroundVerifier({
     tracks: verifiedTracks, // Use verifiedTracks which now mirrors discogsTracks
@@ -176,6 +195,70 @@ export function MobilePlayer() {
 
   // Cover art scraper hook
   const { scrapeCoverArt, batchLoadCoverArtFromDb } = useCoverArtScraper();
+  const { upsertTracks, loadTracks, applyCachedMetadata } = useTrackCache();
+  const ownerKey = useMemo(() => resolveOwnerKey(credentials?.username), [credentials?.username]);
+  const cachedRowsRef = useRef<TrackCacheRow[]>([]);
+  const syncTimerRef = useRef<number | null>(null);
+
+  // Load cached metadata from database for faster future loads.
+  useEffect(() => {
+    let cancelled = false;
+    loadTracks(ownerKey).then((rows) => {
+      if (cancelled) return;
+      cachedRowsRef.current = rows;
+      if (rows.length > 0) {
+        setDiscogsTracks((prev) => {
+          if (prev.length === 0) {
+            const fromDb: Track[] = rows.map((row) => ({
+              id: row.track_id,
+              title: row.title,
+              artist: row.artist,
+              album: row.album || row.title,
+              year: row.year || 0,
+              genre: row.genre || 'Unknown',
+              label: row.label || 'Unknown',
+              duration: 240,
+              coverUrl: row.cover1 || '/placeholder.svg',
+              coverUrls: [row.cover1, row.cover2, row.cover3, row.cover4].filter(Boolean) as string[],
+              youtubeId: row.youtube1 || '',
+              youtubeCandidates: [row.youtube1, row.youtube2].filter(Boolean) as string[],
+              discogsReleaseId: row.release_id || undefined,
+              discogsTrackPosition: row.track_position || undefined,
+              country: row.country || undefined,
+              workingStatus: row.working_status,
+              source: row.source,
+            }));
+            return fromDb;
+          }
+          return applyCachedMetadata(prev, rows);
+        });
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [ownerKey, loadTracks, applyCachedMetadata]);
+
+  useEffect(() => {
+    if (discogsTracks.length === 0 || cachedRowsRef.current.length === 0) return;
+    setDiscogsTracks((prev) => applyCachedMetadata(prev, cachedRowsRef.current));
+  }, [discogsTracks.length, applyCachedMetadata]);
+
+  // Persist track updates to database in batches.
+  useEffect(() => {
+    if (!ownerKey || discogsTracks.length === 0) return;
+    if (syncTimerRef.current) {
+      window.clearTimeout(syncTimerRef.current);
+    }
+    syncTimerRef.current = window.setTimeout(() => {
+      upsertTracks(ownerKey, discogsTracks);
+    }, 500);
+    return () => {
+      if (syncTimerRef.current) {
+        window.clearTimeout(syncTimerRef.current);
+      }
+    };
+  }, [ownerKey, discogsTracks, upsertTracks]);
 
   // Cover art scraping notifications are handled per-track as they update
 
@@ -293,6 +376,8 @@ export function MobilePlayer() {
         }));
 
         console.log(`[fetchAllTracks] Setting ${merged.length} tracks to discogsTracks state`);
+        setIsPlaying(false);
+        setCurrentVideoId('');
         setDiscogsTracks(merged);
       } catch (error) {
         console.error('[fetchAllTracks] Failed to refresh Discogs tracks', error);
@@ -305,7 +390,7 @@ export function MobilePlayer() {
     return () => {
       cancelled = true;
     };
-  }, [isAuthenticated, credentials?.username, fetchAllTracks, lastFetchedKey]);
+  }, [isAuthenticated, credentials?.username, fetchAllTracks, lastFetchedKey, setIsPlaying]);
 
   useEffect(() => {
     prefetchedRef.current.clear();
@@ -366,41 +451,73 @@ export function MobilePlayer() {
     }
   }, [filteredTracks, setPlaylist]);
 
-  // Auto-search for YouTube video when track changes (fallback for any missed)
+  // Auto-resolve YouTube with a 3-second skip window for the active track.
   useEffect(() => {
     if (!currentTrack) return;
     if (currentTrack.id === lastSearchedTrackId.current) return;
     lastSearchedTrackId.current = currentTrack.id;
-    
+
     if (currentTrack.youtubeId) {
       setCurrentVideoId(currentTrack.youtubeId);
+      applyTrackPatch(currentTrack.id, { workingStatus: 'working' });
     } else {
-      if (isQuotaExceeded) {
+      const trackId = currentTrack.id;
+      let cancelled = false;
+      let timedOut = false;
+
+      const markAsNonWorking = () => {
+        applyTrackPatch(trackId, { workingStatus: 'non_working' });
+      };
+
+      const timeoutId = window.setTimeout(() => {
+        if (cancelled) return;
+        timedOut = true;
+        markAsNonWorking();
         setCurrentVideoId('');
-        setIsPlaying(false);
-        return;
-      }
-      // Track should already have a youtubeId, but if not, search and skip if not found
-      searchForVideo(currentTrack).then((videoId) => {
+        skipNext();
+      }, 3000);
+
+      (async () => {
+        const media = await resolveMediaForTrack(currentTrack);
+        if (media.provider === 'youtube' && media.youtubeId) {
+          return {
+            videoId: media.youtubeId,
+            youtubeCandidates: media.youtubeCandidates,
+            coverUrl: media.coverUrl,
+            coverUrls: media.coverUrls,
+          };
+        }
+
+        const videoId = await searchForVideo(currentTrack);
+        return { videoId, youtubeCandidates: undefined, coverUrl: undefined, coverUrls: undefined };
+      })().then(({ videoId, youtubeCandidates, coverUrl, coverUrls }) => {
+        if (cancelled) return;
         if (videoId) {
           setCurrentVideoId(videoId);
-          setVerifiedTracks((prev) =>
-            prev.map((t) =>
-              t.id === currentTrack.id ? { ...t, youtubeId: videoId } : t
-            )
-          );
+          applyTrackPatch(trackId, {
+            youtubeId: videoId,
+            youtubeCandidates,
+            coverUrl,
+            coverUrls,
+            workingStatus: 'working',
+          });
+          window.clearTimeout(timeoutId);
         } else {
-          // Mark as unavailable and skip
-          if (!isQuotaExceeded) {
-            markAsUnavailable(currentTrack);
-            removeFromPlaylist(currentTrack.id);
+          if (!timedOut) {
+            markAsNonWorking();
             setCurrentVideoId('');
+            window.clearTimeout(timeoutId);
             skipNext();
           }
         }
       });
+
+      return () => {
+        cancelled = true;
+        window.clearTimeout(timeoutId);
+      };
     }
-  }, [currentTrack, searchForVideo, skipNext, markAsUnavailable, removeFromPlaylist, isQuotaExceeded, setIsPlaying]);
+  }, [currentTrack, resolveMediaForTrack, searchForVideo, skipNext, applyTrackPatch]);
 
   // Pre-fetch YouTube IDs for next 4 tracks
   useEffect(() => {
@@ -415,25 +532,15 @@ export function MobilePlayer() {
     upcomingTracks.forEach((t) => prefetchedRef.current.add(t.id));
 
     prefetchVideos(upcomingTracks).then((results) => {
-      const unavailableIds: string[] = [];
-      
       results.forEach((videoId, trackId) => {
-        if (!videoId) {
-          unavailableIds.push(trackId);
+        if (videoId) {
+          applyTrackPatch(trackId, { youtubeId: videoId, workingStatus: 'working' });
+        } else {
+          applyTrackPatch(trackId, { workingStatus: 'non_working' });
         }
       });
-
-      // Update verified tracks with found IDs
-      if (results.size > 0) {
-        setVerifiedTracks((prev) =>
-          prev.map((t) => {
-            const videoId = results.get(t.id);
-            return videoId ? { ...t, youtubeId: videoId } : t;
-          }).filter((t) => !unavailableIds.includes(t.id))
-        );
-      }
     });
-  }, [currentIndex, playlist, prefetchVideos]);
+  }, [currentIndex, playlist, prefetchVideos, applyTrackPatch]);
 
   const handlePlayerStateChange = (state: number) => {
     if (state === 0) skipNext();
@@ -445,15 +552,9 @@ export function MobilePlayer() {
     async (code: number) => {
       if (!currentTrack) return;
 
-      if (isQuotaExceeded) {
-        setIsPlaying(false);
-        return;
-      }
-
       if (code === 100 || code === 2 || code === 5) {
-        // Video unavailable - remove from playlist and skip
-        markAsUnavailable(currentTrack);
-        removeFromPlaylist(currentTrack.id);
+        // Video unavailable - mark as non-working and skip.
+        applyTrackPatch(currentTrack.id, { workingStatus: 'non_working' });
         skipNext();
         return;
       }
@@ -461,9 +562,8 @@ export function MobilePlayer() {
       if (code !== 150 && code !== 101) return;
 
       if (fallbackAttemptedRef.current.has(currentTrack.id)) {
-        // Already tried fallback, remove and skip
-        markAsUnavailable(currentTrack);
-        removeFromPlaylist(currentTrack.id);
+        // Already tried fallback, keep track in list but skip.
+        applyTrackPatch(currentTrack.id, { workingStatus: 'non_working' });
         skipNext();
         return;
       }
@@ -474,18 +574,15 @@ export function MobilePlayer() {
 
       if (altId) {
         setCurrentVideoId(altId);
-        setVerifiedTracks((prev) =>
-          prev.map((t) => (t.id === currentTrack.id ? { ...t, youtubeId: altId } : t))
-        );
+        applyTrackPatch(currentTrack.id, { youtubeId: altId, workingStatus: 'working' });
         return;
       }
 
-      // No alternative found - remove and skip
-      markAsUnavailable(currentTrack);
-      removeFromPlaylist(currentTrack.id);
+      // No alternative found - keep row but skip.
+      applyTrackPatch(currentTrack.id, { workingStatus: 'non_working' });
       skipNext();
     },
-    [currentTrack, searchForVideo, skipNext, markAsUnavailable, removeFromPlaylist, isQuotaExceeded, setIsPlaying]
+    [currentTrack, searchForVideo, skipNext, applyTrackPatch]
   );
 
   // Demo mode helper - open current track in YouTube
@@ -509,8 +606,27 @@ export function MobilePlayer() {
   // CSV upload handlers with toast notifications and cover art scraping
   const handleCollectionCSVUpload = async (file: File) => {
     try {
+      // First import should clear active playback/demo stream state.
+      setIsPlaying(false);
+      setCurrentVideoId('');
+
       const tracks = await loadCollectionCSV(file);
       toast.success(`Loaded ${tracks.length} collection items from CSV`);
+
+      if (tracks.length > 0) {
+        const firstTrack = tracks[0];
+        const firstVideoId = await Promise.race<string>([
+          searchForVideo(firstTrack),
+          new Promise((resolve) => setTimeout(() => resolve(''), 3000)),
+        ]);
+        if (firstVideoId) {
+          updateCSVTrack({ ...firstTrack, youtubeId: firstVideoId, workingStatus: 'working' });
+        } else {
+          updateCSVTrack({ ...firstTrack, workingStatus: 'non_working' });
+        }
+
+        await upsertTracks(ownerKey, tracks);
+      }
 
       // Load cover art from database immediately, then scrape missing ones
       if (tracks.length > 0) {
@@ -531,8 +647,27 @@ export function MobilePlayer() {
 
   const handleWantlistCSVUpload = async (file: File) => {
     try {
+      // First import should clear active playback/demo stream state.
+      setIsPlaying(false);
+      setCurrentVideoId('');
+
       const tracks = await loadWantlistCSV(file);
       toast.success(`Loaded ${tracks.length} wantlist items from CSV`);
+
+      if (tracks.length > 0) {
+        const firstTrack = tracks[0];
+        const firstVideoId = await Promise.race<string>([
+          searchForVideo(firstTrack),
+          new Promise((resolve) => setTimeout(() => resolve(''), 3000)),
+        ]);
+        if (firstVideoId) {
+          updateCSVTrack({ ...firstTrack, youtubeId: firstVideoId, workingStatus: 'working' });
+        } else {
+          updateCSVTrack({ ...firstTrack, workingStatus: 'non_working' });
+        }
+
+        await upsertTracks(ownerKey, tracks);
+      }
 
       // Load cover art from database immediately, then scrape missing ones
       if (tracks.length > 0) {

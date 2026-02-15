@@ -42,9 +42,11 @@ interface DiscogsReleaseDetails {
   id: number;
   title?: string;
   year?: number;
+  country?: string;
   thumb?: string;
   images?: Array<{
     uri?: string;
+    resource_url?: string;
     type?: string;
     width?: number;
     height?: number;
@@ -111,8 +113,12 @@ export function useDiscogsData(credentials: DiscogsCredentials | null) {
       label: info.labels?.[0]?.name || 'Unknown',
       duration: 240, // Default duration, will be updated when YouTube video loads
       coverUrl,
+      coverUrls: coverUrl ? [coverUrl] : [],
       youtubeId: '', // Populated later from Discogs release video links (or user input).
+      youtubeCandidates: [],
       discogsReleaseId: info.id,
+      country: undefined,
+      workingStatus: 'pending',
       source,
     };
   };
@@ -150,11 +156,16 @@ export function useDiscogsData(credentials: DiscogsCredentials | null) {
     const tracklist = Array.isArray(details?.tracklist) ? details.tracklist : [];
     
     // Get cover art from full release details (better quality than basic_information)
-    const detailsImage = details?.images?.[0]?.uri;
+    const coverUrls = (details?.images || [])
+      .map((img) => img?.uri || img?.resource_url || '')
+      .filter(Boolean)
+      .slice(0, 4);
+    const detailsImage = coverUrls[0];
     const detailsThumb = details?.thumb;
     const basicCover = info.cover_image;
     const basicThumb = info.thumb;
     const coverUrl = detailsImage || detailsThumb || basicCover || basicThumb || '/placeholder.svg';
+    const country = details?.country;
     
     console.log(`[Cover Art] Release ${releaseId} (${album}):`);
     console.log(`  - details.images[0].uri: ${detailsImage || 'N/A'}`);
@@ -187,10 +198,14 @@ export function useDiscogsData(credentials: DiscogsCredentials | null) {
         label,
         duration,
         coverUrl,
+        coverUrls: coverUrls.length > 0 ? coverUrls : (coverUrl ? [coverUrl] : []),
         youtubeId: '',
+        youtubeCandidates: [],
         discogsReleaseId: releaseId,
         discogsTrackPosition: position,
         discogsTrackIndex: idx,
+        country,
+        workingStatus: 'pending' as const,
         source,
       };
       

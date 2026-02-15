@@ -91,8 +91,12 @@ export function parseDiscogsCSV(csvContent: string, source: 'collection' | 'want
         label,
         duration: 240, // Default duration
         coverUrl: '/placeholder.svg', // No cover URL from CSV
+        coverUrls: [],
         youtubeId: '', // Will be resolved later
+        youtubeCandidates: [],
         discogsReleaseId: releaseId || undefined,
+        country: undefined,
+        workingStatus: 'pending',
         source,
       };
 

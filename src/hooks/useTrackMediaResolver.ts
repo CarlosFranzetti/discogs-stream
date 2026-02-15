@@ -6,9 +6,9 @@ import { extractYouTubeCandidatesFromDiscogsRelease } from '@/lib/discogs';
 type FetchRelease = (releaseId: number) => Promise<unknown>;
 
 type ResolvedMedia =
-  | { provider: 'youtube'; youtubeId: string; coverUrl?: string }
+  | { provider: 'youtube'; youtubeId: string; youtubeCandidates?: string[]; coverUrl?: string; coverUrls?: string[] }
   | { provider: 'bandcamp'; bandcampEmbedSrc: string; bandcampUrl?: string; coverUrl?: string }
-  | { provider: null; coverUrl?: string };
+  | { provider: null; coverUrl?: string; coverUrls?: string[] };
 
 function normalizeForMatch(s: string): string {
   return (s || '')
@@ -129,18 +129,22 @@ export function useTrackMediaResolver(opts: { fetchRelease?: FetchRelease; disco
 
     const youtube = candidates.find((r) => r.provider === 'youtube' && r.youtube_id);
     if (youtube?.youtube_id) {
-      return { provider: 'youtube', youtubeId: youtube.youtube_id };
+      return { provider: 'youtube', youtubeId: youtube.youtube_id, youtubeCandidates: [youtube.youtube_id] };
     }
 
     // 2) Fallback: Discogs release videos (often YouTube) and best-effort match to the track title.
     const release = await getRelease(track.discogsReleaseId);
     
     // Extract cover art from Discogs release
-    const images = (release as { images?: Array<{ resource_url?: string; type?: string }> })?.images;
-    const discogsCover = images?.find(img => img.type === 'primary')?.resource_url || images?.[0]?.resource_url;
+    const images = (release as { images?: Array<{ resource_url?: string; uri?: string; type?: string }> })?.images;
+    const discogsCoverUrls = (images || [])
+      .map((img) => img?.resource_url || img?.uri || '')
+      .filter(Boolean)
+      .slice(0, 4);
+    const discogsCover = discogsCoverUrls[0];
 
     const yt = extractYouTubeCandidatesFromDiscogsRelease(release);
-    if (yt.length === 0) return { provider: null, coverUrl: discogsCover };
+    if (yt.length === 0) return { provider: null, coverUrl: discogsCover, coverUrls: discogsCoverUrls };
 
     const scored = yt
       .map((c) => ({ ...c, score: scoreVideoTitle(c.title || '', track.artist, track.title) }))
@@ -148,8 +152,11 @@ export function useTrackMediaResolver(opts: { fetchRelease?: FetchRelease; disco
 
     const preferDifferentFrom = (options?.preferDifferentFromYoutubeId || '').trim();
     const best = preferDifferentFrom ? scored.find((x) => x.videoId !== preferDifferentFrom) : scored[0];
-    if (best && best.videoId) return { provider: 'youtube', youtubeId: best.videoId, coverUrl: discogsCover };
-    return { provider: null, coverUrl: discogsCover };
+    if (best && best.videoId) {
+      const youtubeCandidates = scored.map((row) => row.videoId).filter(Boolean).slice(0, 2);
+      return { provider: 'youtube', youtubeId: best.videoId, youtubeCandidates, coverUrl: discogsCover, coverUrls: discogsCoverUrls };
+    }
+    return { provider: null, coverUrl: discogsCover, coverUrls: discogsCoverUrls };
   }, [getRelease, getSavedMediaForRelease]);
 
   const prefetchForTracks = useCallback(async (tracks: Track[]) => {

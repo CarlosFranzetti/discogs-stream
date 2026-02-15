@@ -31,11 +31,13 @@ export function PlaylistSidebar({ playlist, currentIndex, onSelectTrack }: Playl
       {/* Track list */}
       <ScrollArea className="flex-1">
         <div className="p-2">
-          {playlist.map((track, index) => (
+          {playlist.map((track, index) => {
+            const isDimmed = track.workingStatus === 'non_working' || (!track.youtubeId && track.workingStatus !== 'working');
+            return (
             <div
               key={track.id}
               onClick={() => onSelectTrack(index)}
-              className={`track-item ${index === currentIndex ? 'active' : ''}`}
+              className={`track-item ${index === currentIndex ? 'active' : ''} ${isDimmed ? 'opacity-60' : ''}`}
             >
               {/* Index or playing indicator */}
               <div className="w-6 flex-shrink-0 text-center">
@@ -73,6 +75,7 @@ export function PlaylistSidebar({ playlist, currentIndex, onSelectTrack }: Playl
                   {track.title}
                 </p>
                 <p className="text-xs text-muted-foreground truncate">{track.artist}</p>
+                {isDimmed && <p className="text-[10px] text-muted-foreground/80">No stream link yet</p>}
               </div>
 
               {/* Source indicator */}
@@ -88,7 +91,8 @@ export function PlaylistSidebar({ playlist, currentIndex, onSelectTrack }: Playl
                 />
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       </ScrollArea>
     </div>

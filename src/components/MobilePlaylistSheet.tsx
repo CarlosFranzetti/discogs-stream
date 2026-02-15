@@ -1,8 +1,7 @@
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Button } from '@/components/ui/button';
 import { Track } from '@/types/track';
-import { Music, Heart, ShoppingCart, Disc3, LogOut, User } from 'lucide-react';
+import { Music, Heart, ShoppingCart, Disc3, User } from 'lucide-react';
 
 interface MobilePlaylistSheetProps {
   isOpen: boolean;
@@ -26,10 +25,10 @@ export function MobilePlaylistSheet({
   onSelectTrack,
   isDiscogsAuthenticated,
   discogsUsername,
-  onDisconnectDiscogs,
+  onDisconnectDiscogs: _onDisconnectDiscogs,
   isUserLoggedIn,
   userEmail,
-  onSignOut,
+  onSignOut: _onSignOut,
 }: MobilePlaylistSheetProps) {
   const getSourceIcon = (source: string) => {
     switch (source) {
@@ -55,7 +54,9 @@ export function MobilePlaylistSheet({
 
         <ScrollArea className="flex-1">
           <div className="py-2">
-            {playlist.map((track, index) => (
+            {playlist.map((track, index) => {
+              const isDimmed = track.workingStatus === 'non_working' || (!track.youtubeId && track.workingStatus !== 'working');
+              return (
               <button
                 key={track.id}
                 onClick={() => {
@@ -66,7 +67,7 @@ export function MobilePlaylistSheet({
                   index === currentIndex
                     ? 'bg-primary/10 border-l-2 border-primary'
                     : 'hover:bg-muted/50'
-                }`}
+                } ${isDimmed ? 'opacity-60' : ''}`}
               >
                 {/* Track number / playing indicator */}
                 <div className="w-6 text-center shrink-0">
@@ -101,6 +102,9 @@ export function MobilePlaylistSheet({
                     {track.title}
                   </p>
                   <p className="text-xs text-muted-foreground truncate">{track.artist}</p>
+                  {isDimmed && (
+                    <p className="text-[10px] text-muted-foreground/80">No stream link yet</p>
+                  )}
                 </div>
 
                 {/* Source indicator */}
@@ -108,7 +112,8 @@ export function MobilePlaylistSheet({
                   {getSourceIcon(track.source)}
                 </div>
               </button>
-            ))}
+              );
+            })}
           </div>
         </ScrollArea>
 

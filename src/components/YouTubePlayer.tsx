@@ -47,7 +47,8 @@ export function YouTubePlayer({
       if (isInitialized.current || !containerRef.current) return;
       isInitialized.current = true;
 
-      console.log('Initializing YouTube player with videoId:', effectiveVideoId);
+      console.log('[YouTubePlayer] Initializing YouTube player with videoId:', effectiveVideoId);
+      console.log('[YouTubePlayer] Container dimensions:', containerRef.current?.offsetWidth, 'x', containerRef.current?.offsetHeight);
       
       // If we have a videoId, use it; otherwise use search query in the player
       const playerOptions: YT.PlayerOptions = {
@@ -67,10 +68,20 @@ export function YouTubePlayer({
         },
         events: {
           onReady: (event) => {
-            console.log('YouTube player ready');
+            console.log('[YouTubePlayer] YouTube player ready, autoplay:', effectiveVideoId ? 'YES' : 'NO');
+            console.log('[YouTubePlayer] Player state:', event.target.getPlayerState());
+
+            // CRITICAL: Unmute the player
+            if (typeof event.target.unMute === 'function') {
+              event.target.unMute();
+              event.target.setVolume(100);
+              console.log('[YouTubePlayer] Player unmuted and volume set to 100');
+            }
+
             onReady();
             // Auto-play when ready
             if (effectiveVideoId) {
+              console.log('[YouTubePlayer] Calling playVideo()');
               event.target.playVideo();
             }
           },
@@ -109,11 +120,13 @@ export function YouTubePlayer({
     }
 
     if (videoId && videoId !== currentVideoId) {
-      console.log('Loading new video:', videoId);
+      console.log('[YouTubePlayer] Loading new video:', videoId);
       // Direct video ID provided
       if (typeof playerRef.current.loadVideoById === 'function') {
         playerRef.current.loadVideoById(videoId);
         setCurrentVideoId(videoId);
+        console.log('[YouTubePlayer] Video loaded, calling playVideo()');
+        playerRef.current.playVideo();
       }
     }
   }, [videoId, currentVideoId]);
@@ -128,13 +141,17 @@ export function YouTubePlayer({
     }
   }, [isPlaying]);
 
-  // PIP mode: small window in corner; fullscreen when showVideo is true
+  // Audio-only mode: invisible but properly sized for YouTube API; fullscreen when showVideo is true
   const pipClass = showVideo
     ? 'absolute inset-0 z-10'
-    : 'absolute bottom-4 right-4 w-40 h-24 z-20 rounded-lg overflow-hidden shadow-lg border border-border';
+    : 'absolute opacity-0 pointer-events-none';
+
+  const pipStyle = showVideo
+    ? {}
+    : { width: '320px', height: '180px', overflow: 'hidden', bottom: '-200px', right: 0 };
 
   return (
-    <div className={pipClass}>
+    <div className={pipClass} style={pipStyle}>
       <div ref={containerRef} className="w-full h-full" />
       
       {/* Show search link when no video ID */}

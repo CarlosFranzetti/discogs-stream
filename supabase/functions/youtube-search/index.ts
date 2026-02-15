@@ -6,11 +6,27 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-const YOUTUBE_API_KEY = Deno.env.get('YOUTUBE_API_KEY')!;
+const YOUTUBE_API_KEY = Deno.env.get('YOUTUBE_API_KEY') || '';
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+
+const INVIDIOUS_INSTANCES = [
+  'https://yewtu.be',
+  'https://vid.puffyan.us',
+  'https://invidious.kavin.rocks',
+  'https://invidious.snopyta.org',
+  'https://invidious.lunar.icu',
+];
+
+interface VideoRow {
+  videoId: string;
+  title?: string;
+  channelTitle?: string;
+  thumbnail?: string;
+  durationIso?: string;
+}
 
 function isQuotaExceededPayload(errorText: string): boolean {
   try {
@@ -22,6 +38,180 @@ function isQuotaExceededPayload(errorText: string): boolean {
   }
 }
 
+async function searchWithYtDlp(query: string, maxResults: number): Promise<VideoRow[]> {
+  try {
+    const limit = Math.min(Math.max(maxResults, 1), 10);
+    const searchExpr = `ytsearch${limit}:${query}`;
+
+    const command = new Deno.Command('yt-dlp', {
+      args: [
+        '--dump-json',
+        '--flat-playlist',
+        '--playlist-end', String(limit),
+        '--socket-timeout', '5',
+        '--retries', '1',
+        searchExpr,
+      ],
+      stdout: 'piped',
+      stderr: 'piped',
+    });
+
+    const child = command.spawn();
+    const timeoutId = setTimeout(() => {
+      try {
+        child.kill('SIGTERM');
+      } catch {
+        // noop
+      }
+    }, 9000);
+
+    const [status, stdout, stderr] = await Promise.all([
+      child.status,
+      child.output(),
+      child.stderrOutput(),
+    ]);
+
+    clearTimeout(timeoutId);
+
+    if (!status.success) {
+      const err = new TextDecoder().decode(stderr);
+      console.warn('[youtube-search] yt-dlp search failed:', err);
+      return [];
+    }
+
+    const output = new TextDecoder().decode(stdout).trim();
+    if (!output) return [];
+
+    return output
+      .split('\n')
+      .map((line) => {
+        try {
+          const row = JSON.parse(line);
+          const id = String(row?.id || '').trim();
+          if (!id) return null;
+          return {
+            videoId: id,
+            title: row?.title || '',
+            channelTitle: row?.uploader || row?.channel || '',
+            thumbnail: `https://i.ytimg.com/vi/${id}/hqdefault.jpg`,
+          } as VideoRow;
+        } catch {
+          return null;
+        }
+      })
+      .filter(Boolean) as VideoRow[];
+  } catch (error) {
+    console.warn('[youtube-search] yt-dlp unavailable:', error);
+    return [];
+  }
+}
+
+async function searchWithInvidious(query: string, maxResults: number): Promise<VideoRow[]> {
+  const limit = Math.min(Math.max(maxResults, 1), 10);
+
+  for (const instance of INVIDIOUS_INSTANCES) {
+    try {
+      const response = await fetch(
+        `${instance}/api/v1/search?q=${encodeURIComponent(query)}&type=video`,
+        {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+          },
+          signal: AbortSignal.timeout(5000),
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const data = await response.json() as Array<{ type?: string; videoId?: string; title?: string; author?: string }>;
+      const videos = (Array.isArray(data) ? data : [])
+        .filter((row) => row?.type === 'video' && row?.videoId)
+        .slice(0, limit)
+        .map((row) => ({
+          videoId: row.videoId!,
+          title: row.title || '',
+          channelTitle: row.author || '',
+          thumbnail: `https://i.ytimg.com/vi/${row.videoId}/hqdefault.jpg`,
+        }));
+
+      return videos;
+    } catch (error) {
+      console.warn(`[youtube-search] Invidious ${instance} failed:`, error);
+      continue;
+    }
+  }
+
+  return [];
+}
+
+async function searchWithOfficialApi(query: string, maxResults: number, pageToken?: string): Promise<{ videos: VideoRow[]; nextPageToken: string | null; error?: string }> {
+  if (!YOUTUBE_API_KEY) {
+    return { videos: [], nextPageToken: null, error: 'youtube_api_key_missing' };
+  }
+
+  const searchUrl = new URL('https://www.googleapis.com/youtube/v3/search');
+  searchUrl.searchParams.set('part', 'snippet');
+  searchUrl.searchParams.set('q', query);
+  searchUrl.searchParams.set('type', 'video');
+  searchUrl.searchParams.set('maxResults', String(Math.min(Math.max(maxResults, 1), 10)));
+  searchUrl.searchParams.set('key', YOUTUBE_API_KEY);
+  searchUrl.searchParams.set('videoCategoryId', '10');
+  if (pageToken) {
+    searchUrl.searchParams.set('pageToken', pageToken);
+  }
+
+  const searchResponse = await fetch(searchUrl.toString());
+
+  if (!searchResponse.ok) {
+    const errorText = await searchResponse.text();
+    if (searchResponse.status === 403 && isQuotaExceededPayload(errorText)) {
+      return { videos: [], nextPageToken: null, error: 'quota_exceeded' };
+    }
+    return { videos: [], nextPageToken: null, error: `youtube_api_search_error_${searchResponse.status}` };
+  }
+
+  const searchData = await searchResponse.json();
+  const items = searchData.items || [];
+  const nextPageToken = searchData.nextPageToken || null;
+
+  const candidateIds: string[] = items
+    .map((item: { id?: { videoId?: string } }) => item?.id?.videoId)
+    .filter(Boolean) as string[];
+
+  if (candidateIds.length === 0) {
+    return { videos: [], nextPageToken };
+  }
+
+  const videosUrl = new URL('https://www.googleapis.com/youtube/v3/videos');
+  videosUrl.searchParams.set('part', 'status,snippet,contentDetails');
+  videosUrl.searchParams.set('id', candidateIds.join(','));
+  videosUrl.searchParams.set('key', YOUTUBE_API_KEY);
+
+  const videosResponse = await fetch(videosUrl.toString());
+  if (!videosResponse.ok) {
+    const errorText = await videosResponse.text();
+    if (videosResponse.status === 403 && isQuotaExceededPayload(errorText)) {
+      return { videos: [], nextPageToken: null, error: 'quota_exceeded' };
+    }
+    return { videos: [], nextPageToken: null, error: `youtube_api_videos_error_${videosResponse.status}` };
+  }
+
+  const videosData = await videosResponse.json();
+  const embeddable = (videosData.items || [])
+    .filter((item: { status?: { embeddable?: boolean } }) => item?.status?.embeddable === true)
+    .map((item: { id: string; snippet?: { title?: string; channelTitle?: string; thumbnails?: { medium?: { url?: string }; default?: { url?: string } } }; contentDetails?: { duration?: string } }) => ({
+      videoId: item.id,
+      title: item.snippet?.title,
+      channelTitle: item.snippet?.channelTitle,
+      thumbnail: item.snippet?.thumbnails?.medium?.url || item.snippet?.thumbnails?.default?.url,
+      durationIso: item.contentDetails?.duration,
+    }));
+
+  return { videos: embeddable, nextPageToken };
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -29,7 +219,7 @@ serve(async (req) => {
 
   try {
     const { query, maxResults = 1, pageToken, artist, title, refresh = false } = await req.json();
-    
+
     if (!query) {
       return new Response(JSON.stringify({ error: 'Query is required' }), {
         status: 400,
@@ -39,34 +229,33 @@ serve(async (req) => {
 
     let existingVideoId: string | null = null;
 
-    // 0) Check Permanent DB (youtube_videos)
+    // 0) Permanent DB cache by artist/title.
     if (artist && title) {
-       const { data: dbVideo } = await supabase
-         .from('youtube_videos')
-         .select('*')
-         .eq('artist', artist)
-         .eq('title', title)
-         .maybeSingle();
-       
-       if (dbVideo) {
-          existingVideoId = dbVideo.video_id;
-          
-          if (!refresh) {
-            console.log(`DB hit for ${artist} - ${title}`);
-            return new Response(JSON.stringify({
-              videos: [{
-                videoId: dbVideo.video_id,
-                title: title, 
-                channelTitle: dbVideo.channel_title,
-                thumbnail: dbVideo.thumbnail,
-                durationIso: dbVideo.duration_iso
-              }] 
-            }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
-          }
-       }
+      const { data: dbVideo } = await supabase
+        .from('youtube_videos')
+        .select('*')
+        .eq('artist', artist)
+        .eq('title', title)
+        .maybeSingle();
+
+      if (dbVideo) {
+        existingVideoId = dbVideo.video_id;
+        if (!refresh) {
+          return new Response(JSON.stringify({
+            videos: [{
+              videoId: dbVideo.video_id,
+              title,
+              channelTitle: dbVideo.channel_title,
+              thumbnail: dbVideo.thumbnail,
+              durationIso: dbVideo.duration_iso,
+            }],
+            source: 'db',
+          }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        }
+      }
     }
 
-    // Check Cache (only if not refreshing)
+    // 1) Query cache.
     if (!refresh) {
       const { data: cachedData } = await supabase
         .from('search_cache')
@@ -78,193 +267,76 @@ serve(async (req) => {
         .maybeSingle();
 
       if (cachedData) {
-        console.log(`Cache hit for query: ${query}`);
         return new Response(JSON.stringify(cachedData.results), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }
     }
 
-    // 1) If we have an existing ID and we're refreshing or it's a miss, try videos.list first (cheap)
-    if (existingVideoId) {
-      console.log(`Verifying existing video ID: ${existingVideoId}`);
-      const videosUrl = new URL('https://www.googleapis.com/youtube/v3/videos');
-      videosUrl.searchParams.set('part', 'status,snippet,contentDetails');
-      videosUrl.searchParams.set('id', existingVideoId);
-      videosUrl.searchParams.set('key', YOUTUBE_API_KEY);
+    let videos: VideoRow[] = [];
+    let nextPageToken: string | null = null;
+    let source: 'yt-dlp' | 'invidious' | 'youtube-api' = 'yt-dlp';
 
-      const videosResponse = await fetch(videosUrl.toString());
-      if (videosResponse.ok) {
-        const videosData = await videosResponse.json();
-        const item = (videosData.items || [])[0];
-        
-        if (item?.status?.embeddable) {
-          console.log(`Existing video ID ${existingVideoId} is still valid and embeddable.`);
-          const resultData = {
-            videos: [{
-              videoId: item.id,
-              title: item.snippet?.title,
-              channelTitle: item.snippet?.channelTitle,
-              thumbnail: item.snippet?.thumbnails?.medium?.url || item.snippet?.thumbnails?.default?.url,
-              durationIso: item.contentDetails?.duration,
-            }],
-            nextPageToken: null
-          };
+    // 2) Primary: yt-dlp search.
+    videos = await searchWithYtDlp(String(query), Number(maxResults) || 1);
 
-          // Update DB if needed (e.g. update updated_at or other details)
-          await supabase.from('youtube_videos').upsert({
-            artist,
-            title,
-            video_id: item.id,
-            channel_title: item.snippet?.channelTitle,
-            thumbnail: resultData.videos[0].thumbnail,
-            duration_iso: item.contentDetails?.duration,
-            updated_at: new Date().toISOString()
-          }, { onConflict: 'artist,title' });
-
-          return new Response(JSON.stringify(resultData), {
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          });
-        }
-        console.log(`Existing video ID ${existingVideoId} is no longer valid or embeddable. Proceeding to search.`);
-      }
+    // 3) Fallback: Invidious search.
+    if (videos.length === 0) {
+      source = 'invidious';
+      videos = await searchWithInvidious(String(query), Number(maxResults) || 1);
     }
 
-    console.log(`Searching YouTube for: ${query}`);
-
-    // 2) Search for candidate videos (expensive - 100 units)
-    const searchUrl = new URL('https://www.googleapis.com/youtube/v3/search');
-    searchUrl.searchParams.set('part', 'snippet');
-    searchUrl.searchParams.set('q', query);
-    searchUrl.searchParams.set('type', 'video');
-    searchUrl.searchParams.set('maxResults', String(Math.min(Math.max(maxResults, 1), 10)));
-    searchUrl.searchParams.set('key', YOUTUBE_API_KEY);
-    // Prefer music videos and official content
-    searchUrl.searchParams.set('videoCategoryId', '10'); // Music category
-    if (pageToken) {
-      searchUrl.searchParams.set('pageToken', pageToken);
-    }
-
-    const searchResponse = await fetch(searchUrl.toString());
-
-    if (!searchResponse.ok) {
-      const errorText = await searchResponse.text();
-      console.error('YouTube API search error:', errorText);
-
-      // 403 can mean either quota exceeded OR access forbidden (bad/disabled key, billing, etc.)
-      // Never bubble this up as a 500.
-      if (searchResponse.status === 403) {
-        // Return 200 to avoid client/platform treating this as a hard runtime failure.
-        // The client still detects `error: 'quota_exceeded'` and will stop background verification.
-        if (isQuotaExceededPayload(errorText)) {
-          return new Response(JSON.stringify({ error: 'quota_exceeded', videos: [] }), {
-            status: 200,
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          });
-        }
-
-        return new Response(JSON.stringify({ error: 'youtube_forbidden' }), {
-          status: 403,
+    // 4) Last resort: Official API.
+    if (videos.length === 0) {
+      source = 'youtube-api';
+      const fallback = await searchWithOfficialApi(String(query), Number(maxResults) || 1, pageToken);
+      if (fallback.error === 'quota_exceeded') {
+        return new Response(JSON.stringify({ error: 'quota_exceeded', videos: [] }), {
+          status: 200,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }
-
-      return new Response(JSON.stringify({ error: `YouTube API search error: ${searchResponse.status}` }), {
-        status: 502,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
-
-    const searchData = await searchResponse.json();
-    const items = searchData.items || [];
-    const nextPageToken = searchData.nextPageToken;
-
-    const candidateIds: string[] = items
-      .map((item: { id?: { videoId?: string } }) => item?.id?.videoId)
-      .filter(Boolean) as string[];
-
-    if (candidateIds.length === 0) {
-       // Cache empty result
-       const emptyResult = { videos: [], nextPageToken };
-       await supabase.from('search_cache').insert({
-         query,
-         page_token: pageToken || null,
-         results: emptyResult,
-         expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-       });
-
-      return new Response(JSON.stringify(emptyResult), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
-
-    // 2) Verify embeddable status (avoids IFrame errors like 150/101)
-    const videosUrl = new URL('https://www.googleapis.com/youtube/v3/videos');
-    videosUrl.searchParams.set('part', 'status,snippet,contentDetails');
-    videosUrl.searchParams.set('id', candidateIds.join(','));
-    videosUrl.searchParams.set('key', YOUTUBE_API_KEY);
-
-    const videosResponse = await fetch(videosUrl.toString());
-
-    if (!videosResponse.ok) {
-      const errorText = await videosResponse.text();
-      console.error('YouTube API videos.list error:', errorText);
-
-      if (videosResponse.status === 403) {
-        if (isQuotaExceededPayload(errorText)) {
-          return new Response(JSON.stringify({ error: 'quota_exceeded', videos: [] }), {
-            status: 200,
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          });
-        }
-
-        return new Response(JSON.stringify({ error: 'youtube_forbidden' }), {
-          status: 403,
+      if (fallback.error) {
+        return new Response(JSON.stringify({ error: fallback.error, videos: [] }), {
+          status: 502,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }
-
-      return new Response(JSON.stringify({ error: `YouTube API videos.list error: ${videosResponse.status}` }), {
-        status: 502,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      videos = fallback.videos;
+      nextPageToken = fallback.nextPageToken;
     }
 
-    const videosData = await videosResponse.json();
+    // Keep prior ID as secondary fallback candidate when refreshing.
+    if (existingVideoId && !videos.some((v) => v.videoId === existingVideoId)) {
+      videos = [
+        ...videos,
+        {
+          videoId: existingVideoId,
+          title,
+          channelTitle: '',
+          thumbnail: `https://i.ytimg.com/vi/${existingVideoId}/hqdefault.jpg`,
+        },
+      ];
+    }
 
-    const embeddable = (videosData.items || [])
-      .filter((item: { status?: { embeddable?: boolean } }) => item?.status?.embeddable === true)
-      .map((item: { id: string; snippet?: { title?: string; channelTitle?: string; thumbnails?: { medium?: { url?: string }; default?: { url?: string } } }; contentDetails?: { duration?: string } }) => ({
-        videoId: item.id,
-        title: item.snippet?.title,
-        channelTitle: item.snippet?.channelTitle,
-        thumbnail: item.snippet?.thumbnails?.medium?.url || item.snippet?.thumbnails?.default?.url,
-        durationIso: item.contentDetails?.duration,
-      }));
+    const resultData = { videos, nextPageToken, source };
 
-    console.log(`Found ${embeddable.length} embeddable videos for query: ${query}`);
-
-    const resultData = { videos: embeddable, nextPageToken };
-
-    // Store in Permanent DB
-    if (artist && title && embeddable.length > 0) {
-      const topVideo = embeddable[0];
+    if (artist && title && videos.length > 0) {
+      const topVideo = videos[0];
       try {
         await supabase.from('youtube_videos').upsert({
           artist,
           title,
           video_id: topVideo.videoId,
-          channel_title: topVideo.channelTitle,
-          thumbnail: topVideo.thumbnail,
-          duration_iso: topVideo.durationIso,
+          channel_title: topVideo.channelTitle || null,
+          thumbnail: topVideo.thumbnail || null,
+          duration_iso: topVideo.durationIso || null,
         }, { onConflict: 'artist,title' });
-        console.log(`Saved video for ${artist} - ${title}`);
       } catch (dbError) {
         console.error('Failed to save to youtube_videos:', dbError);
       }
     }
 
-    // Store in Cache
     try {
       await supabase.from('search_cache').insert({
         query,
@@ -279,15 +351,11 @@ serve(async (req) => {
     return new Response(JSON.stringify(resultData), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
-
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     console.error('YouTube search error:', errorMessage);
 
-    // Defensive: some older implementations throw on 403; treat as quota so the client
-    // can stop background verification instead of crashing.
     if (
-      /youtube api search error:\s*403/i.test(errorMessage) ||
       /quotaExceeded|dailyLimitExceeded|exceeded.*quota/i.test(errorMessage)
     ) {
       return new Response(JSON.stringify({ error: 'quota_exceeded' }), {

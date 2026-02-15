@@ -68,20 +68,35 @@ export function usePlayer(initialTracks?: Track[], dislikedTracks?: Track[]) {
       // Identify entirely new tracks to append
       const prevIds = new Set(prev.map(t => t.id));
       const newTracks = filtered.filter(t => !prevIds.has(t.id));
-      
+
+      // CRITICAL FIX: Always remove tracks no longer in filtered set
+      // This handles both dislikes AND source filter changes
+      const filteredIds = new Set(filtered.map(t => t.id));
+      const cleanedPlaylist = updatedPlaylist.filter(t => filteredIds.has(t.id));
+
+      // If no new tracks, check if we should clean the playlist
       if (newTracks.length === 0) {
-        // Handle removals (dislikes)
-        const currentIds = new Set(filtered.map(t => t.id));
-        const finalPlaylist = updatedPlaylist.filter(t => currentIds.has(t.id));
-        return finalPlaylist;
+        // Only clean if there's a meaningful difference
+        // Avoid cleaning for minor background updates
+        const removedCount = prev.length - cleanedPlaylist.length;
+
+        if (removedCount > 0) {
+          console.log(`[Playlist] Cleaned playlist: ${prev.length} -> ${cleanedPlaylist.length} tracks (removed: ${removedCount})`);
+          console.log('[Playlist] Removed tracks:', prev.filter(t => !filteredIds.has(t.id)).map(t => t.title).slice(0, 5));
+          return cleanedPlaylist;
+        }
+
+        // No change needed - return updated metadata only
+        return updatedPlaylist;
       }
 
-      // Append new tracks (e.g., wantlist after collection)
+      // Append new tracks
+      console.log(`[Playlist] Adding ${newTracks.length} new tracks to ${cleanedPlaylist.length} existing`);
       if (isShuffle) {
-        return [...updatedPlaylist, ...shuffleTracks(newTracks)];
+        return [...cleanedPlaylist, ...shuffleTracks(newTracks)];
       } else {
-        // If sequential, just return the filtered list which is already sorted
-        return filtered; 
+        // In sequential mode, return full filtered list (maintains Discogs order)
+        return filtered;
       }
     });
   }, [initialTracks, dislikedTracks, isShuffle, filterDisliked, isUsingMockData]);
@@ -113,6 +128,22 @@ export function usePlayer(initialTracks?: Track[], dislikedTracks?: Track[]) {
       }
     }
   }, [playlist]);
+
+  // Validate currentIndex whenever playlist length changes
+  useEffect(() => {
+    if (playlist.length === 0) {
+      if (currentIndex !== 0) {
+        console.log('[usePlayer] Playlist empty, resetting index to 0');
+        setCurrentIndex(0);
+      }
+      return;
+    }
+
+    if (currentIndex >= playlist.length) {
+      console.warn(`[usePlayer] Index ${currentIndex} out of bounds for playlist length ${playlist.length}, resetting to 0`);
+      setCurrentIndex(0);
+    }
+  }, [playlist.length, currentIndex]);
 
   const toggleShuffle = useCallback(() => {
     setIsShuffle(prev => {
@@ -177,6 +208,11 @@ export function usePlayer(initialTracks?: Track[], dislikedTracks?: Track[]) {
   }, [isPlaying, play, pause]);
 
   const skipNext = useCallback(() => {
+    if (playlist.length === 0) {
+      console.warn('[usePlayer] Cannot skip next - playlist is empty');
+      return;
+    }
+
     setCurrentTime(0);
     setCurrentIndex((prev) => (prev + 1) % playlist.length);
     // Force playback to start immediately
@@ -189,6 +225,11 @@ export function usePlayer(initialTracks?: Track[], dislikedTracks?: Track[]) {
   }, [playlist.length]);
 
   const skipPrev = useCallback(() => {
+    if (playlist.length === 0) {
+      console.warn('[usePlayer] Cannot skip prev - playlist is empty');
+      return;
+    }
+
     setCurrentTime(0);
     setCurrentIndex((prev) => (prev - 1 + playlist.length) % playlist.length);
     // Force playback to start immediately
