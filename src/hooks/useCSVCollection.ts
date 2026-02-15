@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { Track } from '@/types/track';
 import { parseDiscogsCSV } from '@/lib/csvParser';
 
@@ -114,7 +114,7 @@ export function useCSVCollection() {
 
   const hasCSVData = collection.length > 0 || wantlist.length > 0;
 
-  const allTracks = [...collection, ...wantlist];
+  const allTracks = useMemo(() => [...collection, ...wantlist], [collection, wantlist]);
 
   return {
     collection,

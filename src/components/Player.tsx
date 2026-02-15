@@ -9,6 +9,7 @@ import { useTrackMediaResolver } from '@/hooks/useTrackMediaResolver';
 import { useCSVCollection } from '@/hooks/useCSVCollection';
 import { useYouTubeSearch } from '@/hooks/useYouTubeSearch';
 import { useBackgroundVerifier } from '@/hooks/useBackgroundVerifier';
+import { useCoverArtScraper } from '@/hooks/useCoverArtScraper';
 import { YouTubePlayer } from './YouTubePlayer';
 import { BandcampPlayer } from './BandcampPlayer';
 import { AlbumArt } from './AlbumArt';
@@ -95,13 +96,26 @@ export function Player() {
     loadCollectionCSV,
     loadWantlistCSV,
     clearAll: clearCSVData,
-    updateTrack,
+    updateTrack: updateCSVTrack,
   } = useCSVCollection();
   const {
     searchForVideo,
     isQuotaExceeded,
   } = useYouTubeSearch();
   const [discogsTracks, setDiscogsTracks] = useState<Track[]>([]);
+
+  // Helper to update a track in discogsTracks (used by cover art scraper)
+  const updateDiscogsTrack = useCallback((updatedTrack: Track) => {
+    setDiscogsTracks(prev => {
+      const idx = prev.findIndex(t => t.id === updatedTrack.id);
+      if (idx === -1) return prev;
+      const newTracks = [...prev];
+      newTracks[idx] = updatedTrack;
+      return newTracks;
+    });
+    // Also update CSV track if it exists there
+    updateCSVTrack(updatedTrack);
+  }, [updateCSVTrack]);
 
   // Merge CSV tracks with Discogs tracks
   useEffect(() => {
@@ -185,21 +199,6 @@ export function Player() {
     toggleShuffle,
   } = usePlayer(filteredTracks, persistedDislikedTracks);
 
-  // Comprehensive update function that handles both CSV and Discogs tracks
-  const updateTrackWithVerification = useCallback((updatedTrack: Track) => {
-    // Update CSV tracks in localStorage via useCSVCollection
-    updateTrack(updatedTrack);
-    
-    // Also update verifiedTracks state for immediate UI update (works for all tracks)
-    setVerifiedTracks(prev => {
-      const idx = prev.findIndex(t => t.id === updatedTrack.id);
-      if (idx === -1) return prev;
-      const newTracks = [...prev];
-      newTracks[idx] = updatedTrack;
-      return newTracks;
-    });
-  }, [updateTrack]);
-
   // Background Verifier Hook
   const { isVerifying, progress: verifyProgress } = useBackgroundVerifier({
     tracks: verifiedTracks,
@@ -207,7 +206,7 @@ export function Player() {
     isPlaying,
     searchForVideo,
     resolveMediaForTrack,
-    updateTrack: updateTrackWithVerification,
+    updateTrack: updateDiscogsTrack,
     isQuotaExceeded
   });
 
@@ -285,6 +284,25 @@ export function Player() {
     prefetchedRef.current.clear();
   }, [discogsTracks.length]);
 
+  // Load cover art for Discogs tracks when they change
+  const prevDiscogsCountRef = useRef(0);
+  useEffect(() => {
+    // Only trigger when new tracks are added, not on updates
+    if (discogsTracks.length > prevDiscogsCountRef.current && discogsTracks.length > 0) {
+      prevDiscogsCountRef.current = discogsTracks.length;
+      
+      // Load cover art from database immediately, then scrape missing ones
+      batchLoadCoverArtFromDb(discogsTracks, updateDiscogsTrack).then(dbLoadCount => {
+        if (dbLoadCount > 0) {
+          console.log(`Loaded ${dbLoadCount} covers from database`);
+        }
+        
+        // Then start scraping for missing covers in the background
+        scrapeCoverArt(discogsTracks, updateDiscogsTrack, true);
+      });
+    }
+  }, [discogsTracks.length, batchLoadCoverArtFromDb, scrapeCoverArt, updateDiscogsTrack]);
+
   useEffect(() => {
     const username = credentials?.username;
     if (!username || discogsTracks.length === 0) return;
@@ -298,6 +316,8 @@ export function Player() {
   // Update playlist when filtered tracks change
   useEffect(() => {
     if (filteredTracks.length > 0 && setPlaylist) {
+      console.log(`[Playlist Update] Setting playlist with ${filteredTracks.length} tracks`);
+      console.log('[Playlist Update] First 3 track cover URLs:', filteredTracks.slice(0, 3).map(t => ({ title: t.title, coverUrl: t.coverUrl })));
       setPlaylist(filteredTracks);
     }
   }, [filteredTracks, setPlaylist]);
@@ -340,14 +360,14 @@ export function Player() {
       resolveMediaForTrack(currentTrack).then((media) => {
         if (cancelled) return;
 
-        if (media.provider === 'youtube') {
+        if (media.provider === 'youtube' && 'youtubeId' in media) {
           setCurrentVideoId(media.youtubeId);
           setDiscogsTracks((prev) =>
             prev.map((t) => (t.id === currentTrack.id ? { ...t, youtubeId: media.youtubeId, playbackProvider: 'youtube' } : t))
           );
           return;
         }
-        if (media.provider === 'bandcamp') {
+        if (media.provider === 'bandcamp' && 'bandcampEmbedSrc' in media) {
           setCurrentVideoId('');
           setDiscogsTracks((prev) =>
             prev.map((t) => (t.id === currentTrack.id ? { ...t, bandcampEmbedSrc: media.bandcampEmbedSrc, bandcampUrl: media.bandcampUrl, playbackProvider: 'bandcamp' } : t))
@@ -443,7 +463,7 @@ export function Player() {
       const preferDifferentFromYoutubeId = currentVideoId || currentTrack.youtubeId;
       const alt = await resolveMediaForTrack(currentTrack, { preferDifferentFromYoutubeId });
 
-      if (alt.provider === 'youtube') {
+      if (alt.provider === 'youtube' && 'youtubeId' in alt) {
         setCurrentVideoId(alt.youtubeId);
         setDiscogsTracks((prev) =>
           prev.map((t) => (t.id === currentTrack.id ? { ...t, youtubeId: alt.youtubeId, playbackProvider: 'youtube' } : t))
@@ -456,11 +476,23 @@ export function Player() {
     [currentTrack, currentVideoId, resolveMediaForTrack, skipNext]
   );
 
-  // CSV upload handlers with toast notifications
+  // CSV upload handlers with toast notifications and cover art loading
   const handleCollectionCSVUpload = async (file: File) => {
     try {
       const tracks = await loadCollectionCSV(file);
       toast.success(`Loaded ${tracks.length} collection items from CSV`);
+
+      // Load cover art from database immediately, then scrape missing ones
+      if (tracks.length > 0) {
+        const dbLoadCount = await batchLoadCoverArtFromDb(tracks, updateDiscogsTrack);
+        if (dbLoadCount > 0) {
+          toast.success(`Loaded ${dbLoadCount} covers from database`);
+        }
+
+        // Then start scraping for missing covers in the background
+        toast.info('Fetching remaining cover art...');
+        scrapeCoverArt(tracks, updateDiscogsTrack, true);
+      }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to load CSV');
     }
@@ -470,6 +502,18 @@ export function Player() {
     try {
       const tracks = await loadWantlistCSV(file);
       toast.success(`Loaded ${tracks.length} wantlist items from CSV`);
+
+      // Load cover art from database immediately, then scrape missing ones
+      if (tracks.length > 0) {
+        const dbLoadCount = await batchLoadCoverArtFromDb(tracks, updateDiscogsTrack);
+        if (dbLoadCount > 0) {
+          toast.success(`Loaded ${dbLoadCount} covers from database`);
+        }
+
+        // Then start scraping for missing covers in the background
+        toast.info('Fetching remaining cover art...');
+        scrapeCoverArt(tracks, updateDiscogsTrack, true);
+      }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to load CSV');
     }

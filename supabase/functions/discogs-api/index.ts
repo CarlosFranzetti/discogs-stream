@@ -87,6 +87,12 @@ serve(async (req) => {
 
       const data = await response.json();
       console.log(`Collection: ${data.releases?.length} releases on page ${page}`);
+      if (data.releases?.length > 0) {
+        const firstRelease = data.releases[0].basic_information;
+        console.log(`  - Sample release: ${firstRelease.title}`);
+        console.log(`  - cover_image: ${firstRelease.cover_image}`);
+        console.log(`  - thumb: ${firstRelease.thumb}`);
+      }
       
       // Store in cache
       await supabase.from('search_cache').insert({
@@ -120,6 +126,12 @@ serve(async (req) => {
 
       const data = await response.json();
       console.log(`Wantlist: ${data.wants?.length} wants on page ${page}`);
+      if (data.wants?.length > 0) {
+        const firstWant = data.wants[0].basic_information;
+        console.log(`  - Sample want: ${firstWant.title}`);
+        console.log(`  - cover_image: ${firstWant.cover_image}`);
+        console.log(`  - thumb: ${firstWant.thumb}`);
+      }
       
       // Store in cache
       await supabase.from('search_cache').insert({
@@ -190,6 +202,11 @@ serve(async (req) => {
 
       const data = await response.json();
       console.log(`Release ${releaseId}: ${data.title}`);
+      console.log(`  - Has images: ${!!data.images}, Count: ${data.images?.length || 0}`);
+      console.log(`  - thumb: ${data.thumb}`);
+      if (data.images?.length > 0) {
+        console.log(`  - First image URI: ${data.images[0].uri}`);
+      }
       
       // Store in cache
       await supabase.from('search_cache').insert({

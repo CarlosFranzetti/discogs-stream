@@ -66,24 +66,24 @@ export function MobileTimeline({ currentTime, duration, onSeek }: MobileTimeline
   };
 
   return (
-    <div className="w-full space-y-2">
-      {/* Waveform visualization (decorative) */}
+    <div className="w-full space-y-1.5">
+      {/* Compact waveform visualization (decorative) */}
       <div
         ref={trackRef}
-        className="relative h-12 cursor-pointer group flex items-center"
+        className="relative h-8 sm:h-10 cursor-pointer group flex items-center"
         onMouseDown={handleMouseDown}
         onTouchStart={handleTouchStart}
       >
-        {/* Waveform bars (decorative) */}
+        {/* Waveform bars (decorative) - fewer bars for smaller size */}
         <div className="absolute inset-0 flex items-center justify-around gap-px overflow-hidden">
-          {Array.from({ length: 60 }).map((_, i) => {
+          {Array.from({ length: 50 }).map((_, i) => {
             // Deterministic waveform based on index
             const height = 20 + Math.sin(i * 0.2) * 15 + Math.cos(i * 0.5) * 10 + (i % 3) * 5;
-            const isPast = (i / 60) * 100 <= progress;
+            const isPast = (i / 50) * 100 <= progress;
             return (
               <div
                 key={i}
-                className={`w-1 rounded-full transition-colors ${isPast ? 'bg-primary' : 'bg-muted'}`}
+                className={`w-0.5 sm:w-1 rounded-full transition-colors ${isPast ? 'bg-primary' : 'bg-muted'}`}
                 style={{ height: `${height}%` }}
               />
             );
@@ -103,7 +103,7 @@ export function MobileTimeline({ currentTime, duration, onSeek }: MobileTimeline
         />
       </div>
 
-      <div className="flex justify-between text-xs text-muted-foreground">
+      <div className="flex justify-between text-[10px] sm:text-xs text-muted-foreground px-1">
         <span>{formatTime(currentTime)}</span>
         <span>{formatTime(duration)}</span>
       </div>

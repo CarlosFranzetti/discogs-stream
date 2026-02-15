@@ -78,12 +78,21 @@ export function MobilePlaylistSheet({
                 </div>
 
                 {/* Cover */}
-                <div className="w-10 h-10 rounded overflow-hidden bg-muted shrink-0">
-                  <img
-                    src={track.coverUrl}
-                    alt={track.title}
-                    className="w-full h-full object-cover"
-                  />
+                <div className="w-10 h-10 rounded overflow-hidden bg-muted shrink-0 relative">
+                  {track.coverUrl && track.coverUrl !== '/placeholder.svg' && !track.coverUrl.includes('placeholder') ? (
+                    <img
+                      src={track.coverUrl}
+                      alt={track.title}
+                      className="w-full h-full object-cover"
+                      onError={(e) => {
+                        e.currentTarget.style.display = 'none';
+                      }}
+                    />
+                  ) : (
+                    <div className="absolute inset-0 flex items-center justify-center text-xs bg-gradient-to-br from-primary/20 to-accent/20">
+                      🎵
+                    </div>
+                  )}
                 </div>
 
                 {/* Track info */}
@@ -122,21 +131,6 @@ export function MobilePlaylistSheet({
               <span>{userEmail.split('@')[0]}</span>
             </div>
           )}
-
-          {/* Disconnect button */}
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              onDisconnectDiscogs();
-              if (isUserLoggedIn) onSignOut();
-              onClose();
-            }}
-            className="w-full gap-2"
-          >
-            <LogOut className="w-4 h-4" />
-            Disconnect
-          </Button>
         </div>
       </SheetContent>
     </Sheet>

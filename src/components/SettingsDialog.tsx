@@ -9,10 +9,11 @@ import { useSettings } from '@/hooks/useSettings';
 import { useCSVCollection } from '@/hooks/useCSVCollection';
 import { Settings, Trash2, Palette, RefreshCw, Upload, Download, FileText, Zap, Music } from 'lucide-react';
 import { toast } from 'sonner';
+import { Track } from '@/types/track';
 
 interface SettingsDialogProps {
   onClearData: () => void;
-  playlistTracks?: any[]; // Optional for export
+  playlistTracks?: Track[];
 }
 
 export function SettingsDialog({ onClearData, playlistTracks = [] }: SettingsDialogProps) {
@@ -126,7 +127,7 @@ export function SettingsDialog({ onClearData, playlistTracks = [] }: SettingsDia
 
             <RadioGroup
               defaultValue={theme}
-              onValueChange={(val) => setTheme(val as any)}
+              onValueChange={(val) => setTheme(val as 'dark' | 'theme-midnight' | 'theme-vintage')}
               className="grid gap-3 pt-2"
             >
               <div className="flex items-center space-x-2">

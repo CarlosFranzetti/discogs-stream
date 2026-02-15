@@ -90,9 +90,18 @@ export function useTrackMediaResolver(opts: { fetchRelease?: FetchRelease; disco
 
     const p = (async () => {
       if (!fetchRelease) return null;
-      const rel = await fetchRelease(discogsReleaseId);
-      releaseCache.current.set(discogsReleaseId, rel);
-      return rel;
+      try {
+        const rel = await fetchRelease(discogsReleaseId);
+        releaseCache.current.set(discogsReleaseId, rel);
+        return rel;
+      } catch (error) {
+        // Handle authentication errors gracefully - return null instead of throwing
+        if (error instanceof Error && error.message.includes('Not authenticated')) {
+          console.warn('Cannot fetch release - not authenticated');
+          return null;
+        }
+        throw error;
+      }
     })().finally(() => {
       pendingReleaseFetch.current.delete(discogsReleaseId);
     });

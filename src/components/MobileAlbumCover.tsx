@@ -18,6 +18,8 @@ export function MobileAlbumCover({ track, isPlaying, onClick }: MobileAlbumCover
     );
   }
 
+  const hasValidCover = track.coverUrl && track.coverUrl !== '/placeholder.svg' && !track.coverUrl.includes('placeholder');
+
   return (
     <div
       className="relative w-full aspect-square cursor-pointer group"
@@ -40,11 +42,23 @@ export function MobileAlbumCover({ track, isPlaying, onClick }: MobileAlbumCover
         
         {/* Center label with album art */}
         <div className="absolute inset-[28%] rounded-full overflow-hidden shadow-2xl border-2 border-vinyl-groove/40">
-          <img
-            src={track.coverUrl}
-            alt={`${track.album} by ${track.artist}`}
-            className="w-full h-full object-cover"
-          />
+          {hasValidCover ? (
+            <img
+              src={track.coverUrl}
+              alt={`${track.album} by ${track.artist}`}
+              className="w-full h-full object-cover"
+              onError={(e) => {
+                // Show fallback on error
+                e.currentTarget.style.display = 'none';
+              }}
+            />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-primary/20 to-accent/20">
+              <div className="text-center">
+                <div className="text-2xl">🎵</div>
+              </div>
+            </div>
+          )}
         </div>
         
         {/* Center hole */}

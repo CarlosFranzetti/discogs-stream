@@ -42,6 +42,13 @@ interface DiscogsReleaseDetails {
   id: number;
   title?: string;
   year?: number;
+  thumb?: string;
+  images?: Array<{
+    uri?: string;
+    type?: string;
+    width?: number;
+    height?: number;
+  }>;
   tracklist?: Array<{
     position?: string;
     title?: string;
@@ -91,6 +98,9 @@ export function useDiscogsData(credentials: DiscogsCredentials | null) {
     // Clean up artist name (remove numbering like (2), (3) etc)
     const cleanArtistName = artistName.replace(/\s*\(\d+\)$/, '');
     
+    const coverUrl = info.cover_image || info.thumb || '/placeholder.svg';
+    console.log(`[Cover Art - Basic] Release ${info.id} (${info.title}): ${coverUrl}`);
+    
     return {
       id: `${source}-${release.id}`,
       title: info.title,
@@ -100,7 +110,7 @@ export function useDiscogsData(credentials: DiscogsCredentials | null) {
       genre: info.genres?.[0] || info.styles?.[0] || 'Unknown',
       label: info.labels?.[0]?.name || 'Unknown',
       duration: 240, // Default duration, will be updated when YouTube video loads
-      coverUrl: info.cover_image || info.thumb || '/placeholder.svg',
+      coverUrl,
       youtubeId: '', // Populated later from Discogs release video links (or user input).
       discogsReleaseId: info.id,
       source,
@@ -120,14 +130,38 @@ export function useDiscogsData(credentials: DiscogsCredentials | null) {
     const cleanArtistName = artistName.replace(/\s*\(\d+\)$/, '');
 
     const releaseId = info.id;
-    const coverUrl = info.cover_image || info.thumb || '/placeholder.svg';
     const album = info.title;
     const year = info.year || 0;
     const genre = info.genres?.[0] || info.styles?.[0] || 'Unknown';
     const label = info.labels?.[0]?.name || 'Unknown';
 
-    const details = (await fetchRelease(releaseId)) as DiscogsReleaseDetails;
+    let details: DiscogsReleaseDetails | null = null;
+    try {
+      details = (await fetchRelease(releaseId)) as DiscogsReleaseDetails;
+      console.log(`[Release Details] Release ${releaseId} fetched successfully`);
+      console.log(`  - Has details object: ${!!details}`);
+      console.log(`  - Has images array: ${!!details?.images}`);
+      console.log(`  - Images length: ${details?.images?.length || 0}`);
+      console.log(`  - Full details keys:`, details ? Object.keys(details) : 'null');
+    } catch (error) {
+      console.error(`[Release Details] Failed to fetch release ${releaseId}:`, error);
+    }
+    
     const tracklist = Array.isArray(details?.tracklist) ? details.tracklist : [];
+    
+    // Get cover art from full release details (better quality than basic_information)
+    const detailsImage = details?.images?.[0]?.uri;
+    const detailsThumb = details?.thumb;
+    const basicCover = info.cover_image;
+    const basicThumb = info.thumb;
+    const coverUrl = detailsImage || detailsThumb || basicCover || basicThumb || '/placeholder.svg';
+    
+    console.log(`[Cover Art] Release ${releaseId} (${album}):`);
+    console.log(`  - details.images[0].uri: ${detailsImage || 'N/A'}`);
+    console.log(`  - details.thumb: ${detailsThumb || 'N/A'}`);
+    console.log(`  - info.cover_image: ${basicCover || 'N/A'}`);
+    console.log(`  - info.thumb: ${basicThumb || 'N/A'}`);
+    console.log(`  - FINAL coverUrl: ${coverUrl}`);
 
     const tracks: Track[] = [];
     let idx = 0;
@@ -143,7 +177,7 @@ export function useDiscogsData(credentials: DiscogsCredentials | null) {
       const trackArtist = (trackArtistRaw || 'Unknown Artist').replace(/\s*\(\d+\)$/, '');
 
       const position = pos || String(idx + 1);
-      tracks.push({
+      const trackObj = {
         id: `${source}-${releaseId}-${position}`,
         title,
         artist: trackArtist,
@@ -158,7 +192,13 @@ export function useDiscogsData(credentials: DiscogsCredentials | null) {
         discogsTrackPosition: position,
         discogsTrackIndex: idx,
         source,
-      });
+      };
+      
+      if (idx === 0) {
+        console.log(`[Track Created] ${title} - coverUrl: ${coverUrl}`);
+      }
+      
+      tracks.push(trackObj);
       idx += 1;
     }
 

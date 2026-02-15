@@ -187,17 +187,9 @@ export function MobileTitleScreen({
         ) : (
           /* Not connected state */
           <div className="space-y-4">
-            <Button
-              onClick={onConnectDiscogs}
-              variant="outline"
-              className="w-full gap-2 py-6 border-border hover:border-primary hover:bg-primary/5"
-            >
-              <Disc3 className="w-5 h-5" />
-              Connect to Discogs
-            </Button>
-            {discogsError && (
-              <p className="text-xs text-destructive text-center">{discogsError}</p>
-            )}
+            <p className="text-sm text-muted-foreground text-center py-4">
+              Connect via CSV files below or sign in
+            </p>
           </div>
         )}
       </div>

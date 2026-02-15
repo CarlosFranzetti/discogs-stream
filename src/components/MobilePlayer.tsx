@@ -24,6 +24,7 @@ import { toast } from 'sonner';
 import { SettingsDialog } from '@/components/SettingsDialog';
 import { useTrackMediaResolver } from '@/hooks/useTrackMediaResolver';
 import { useBackgroundVerifier } from '@/hooks/useBackgroundVerifier';
+import { useCoverArtScraper } from '@/hooks/useCoverArtScraper';
 
 export function MobilePlayer() {
   const navigate = useNavigate();
@@ -74,9 +75,22 @@ export function MobilePlayer() {
     loadCollectionCSV,
     loadWantlistCSV,
     clearAll: clearCSVData,
-    updateTrack,
+    updateTrack: updateCSVTrack,
   } = useCSVCollection();
   const [discogsTracks, setDiscogsTracks] = useState<Track[]>([]);
+
+  // Helper to update a track in discogsTracks (used by cover art scraper)
+  const updateDiscogsTrack = useCallback((updatedTrack: Track) => {
+    setDiscogsTracks(prev => {
+      const idx = prev.findIndex(t => t.id === updatedTrack.id);
+      if (idx === -1) return prev;
+      const newTracks = [...prev];
+      newTracks[idx] = updatedTrack;
+      return newTracks;
+    });
+    // Also update CSV track if it exists there
+    updateCSVTrack(updatedTrack);
+  }, [updateCSVTrack]);
 
   // Merge CSV tracks with Discogs tracks
   useEffect(() => {
@@ -149,21 +163,6 @@ export function MobilePlayer() {
     toggleShuffle,
   } = usePlayer(filteredTracks, persistedDislikedTracks);
 
-  // Comprehensive update function that handles both CSV and Discogs tracks
-  const updateTrackWithVerification = useCallback((updatedTrack: Track) => {
-    // Update CSV tracks in localStorage via useCSVCollection
-    updateTrack(updatedTrack);
-    
-    // Also update verifiedTracks state for immediate UI update (works for all tracks)
-    setVerifiedTracks(prev => {
-      const idx = prev.findIndex(t => t.id === updatedTrack.id);
-      if (idx === -1) return prev;
-      const newTracks = [...prev];
-      newTracks[idx] = updatedTrack;
-      return newTracks;
-    });
-  }, [updateTrack]);
-
   // Background Verifier Hook
   const { isVerifying, progress: verifyProgress } = useBackgroundVerifier({
     tracks: verifiedTracks, // Use verifiedTracks which now mirrors discogsTracks
@@ -171,9 +170,14 @@ export function MobilePlayer() {
     isPlaying,
     searchForVideo,
     resolveMediaForTrack,
-    updateTrack: updateTrackWithVerification,
+    updateTrack: updateDiscogsTrack,
     isQuotaExceeded
   });
+
+  // Cover art scraper hook
+  const { scrapeCoverArt, batchLoadCoverArtFromDb } = useCoverArtScraper();
+
+  // Cover art scraping notifications are handled per-track as they update
 
   // Handle volume change
   const handleVolumeChange = useCallback((value: number[]) => {
@@ -258,9 +262,29 @@ export function MobilePlayer() {
     let cancelled = false;
 
     const loadTracks = async () => {
+      console.log('[fetchAllTracks] Starting to load Discogs tracks');
       try {
         const tracks = await fetchAllTracks(100);
-        if (cancelled || tracks.length === 0) return;
+        console.log(`[fetchAllTracks] Fetched ${tracks.length} tracks from Discogs API`);
+        
+        if (cancelled) {
+          console.log('[fetchAllTracks] Load cancelled');
+          return;
+        }
+        
+        if (tracks.length === 0) {
+          console.log('[fetchAllTracks] No tracks returned, skipping');
+          return;
+        }
+
+        // Log first track to verify cover art
+        if (tracks.length > 0) {
+          console.log('[fetchAllTracks] First track:', {
+            title: tracks[0].title,
+            coverUrl: tracks[0].coverUrl,
+            source: tracks[0].source
+          });
+        }
 
         const preserved = new Map(verifiedTracksRef.current.map((t) => [t.id, t.youtubeId]));
         const merged = tracks.map((track) => ({
@@ -268,9 +292,10 @@ export function MobilePlayer() {
           youtubeId: track.youtubeId || preserved.get(track.id) || '',
         }));
 
+        console.log(`[fetchAllTracks] Setting ${merged.length} tracks to discogsTracks state`);
         setDiscogsTracks(merged);
       } catch (error) {
-        console.error('Failed to refresh Discogs tracks', error);
+        console.error('[fetchAllTracks] Failed to refresh Discogs tracks', error);
         setLastFetchedKey(null);
       }
     };
@@ -285,6 +310,29 @@ export function MobilePlayer() {
   useEffect(() => {
     prefetchedRef.current.clear();
   }, [discogsTracks.length]);
+
+  // Load cover art for Discogs tracks when they change
+  const prevDiscogsCountRef = useRef(0);
+  useEffect(() => {
+    // Only trigger when new tracks are added, not on updates
+    if (discogsTracks.length > prevDiscogsCountRef.current && discogsTracks.length > 0) {
+      prevDiscogsCountRef.current = discogsTracks.length;
+      
+      console.log(`[Cover Art] Loading cover art for ${discogsTracks.length} tracks`);
+      
+      // Load cover art from database immediately, then scrape missing ones
+      batchLoadCoverArtFromDb(discogsTracks, updateDiscogsTrack).then(dbLoadCount => {
+        if (dbLoadCount > 0) {
+          console.log(`[Cover Art] Loaded ${dbLoadCount} covers from database`);
+          toast.success(`Loaded ${dbLoadCount} cover arts from cache`);
+        }
+        
+        // Then start scraping for missing covers in the background
+        console.log('[Cover Art] Starting scraper for missing covers');
+        scrapeCoverArt(discogsTracks, updateDiscogsTrack, true);
+      });
+    }
+  }, [discogsTracks.length, batchLoadCoverArtFromDb, scrapeCoverArt, updateDiscogsTrack]);
 
   useEffect(() => {
     const username = credentials?.username;
@@ -440,6 +488,13 @@ export function MobilePlayer() {
     [currentTrack, searchForVideo, skipNext, markAsUnavailable, removeFromPlaylist, isQuotaExceeded, setIsPlaying]
   );
 
+  // Demo mode helper - open current track in YouTube
+  const handleOpenInYouTube = useCallback(() => {
+    if (currentTrack) {
+      window.open(getSearchUrl(currentTrack), '_blank');
+    }
+  }, [currentTrack, getSearchUrl]);
+
   const handleStartListening = useCallback(() => {
     setHasUserInteracted(true);
     // Start playback as soon as we have at least one track
@@ -451,11 +506,24 @@ export function MobilePlayer() {
     }
   }, [playerRef, currentTrack, currentVideoId, setIsPlaying]);
 
-  // CSV upload handlers with toast notifications
+  // CSV upload handlers with toast notifications and cover art scraping
   const handleCollectionCSVUpload = async (file: File) => {
     try {
       const tracks = await loadCollectionCSV(file);
       toast.success(`Loaded ${tracks.length} collection items from CSV`);
+
+      // Load cover art from database immediately, then scrape missing ones
+      if (tracks.length > 0) {
+        // First, batch load any existing cover art from database
+        const dbLoadCount = await batchLoadCoverArtFromDb(tracks, updateCSVTrack);
+        if (dbLoadCount > 0) {
+          toast.success(`Loaded ${dbLoadCount} covers from database`);
+        }
+
+        // Then start scraping for missing covers in the background
+        toast.info('Fetching remaining cover art...');
+        scrapeCoverArt(tracks, updateCSVTrack, true);
+      }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to load CSV');
     }
@@ -465,6 +533,19 @@ export function MobilePlayer() {
     try {
       const tracks = await loadWantlistCSV(file);
       toast.success(`Loaded ${tracks.length} wantlist items from CSV`);
+
+      // Load cover art from database immediately, then scrape missing ones
+      if (tracks.length > 0) {
+        // First, batch load any existing cover art from database
+        const dbLoadCount = await batchLoadCoverArtFromDb(tracks, updateCSVTrack);
+        if (dbLoadCount > 0) {
+          toast.success(`Loaded ${dbLoadCount} covers from database`);
+        }
+
+        // Then start scraping for missing covers in the background
+        toast.info('Fetching remaining cover art...');
+        scrapeCoverArt(tracks, updateCSVTrack, true);
+      }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to load CSV');
     }
@@ -493,15 +574,6 @@ export function MobilePlayer() {
       </div>
     );
   }
-
-  // Demo mode helper - open current track in YouTube
-  const handleOpenInYouTube = useCallback(() => {
-    if (currentTrack) {
-      window.open(getSearchUrl(currentTrack), '_blank');
-    }
-  }, [currentTrack, getSearchUrl]);
-
-  // No longer blocking on verification - title screen shows progress and allows starting early
 
   // Title screen
   if (!hasUserInteracted) {
@@ -552,9 +624,9 @@ export function MobilePlayer() {
 
   // Main player view
   return (
-    <div className="h-screen flex flex-col bg-background overflow-hidden max-w-md mx-auto">
+    <div className="h-screen flex flex-col bg-background overflow-hidden max-w-[480px] md:max-w-md mx-auto safe-area">
       {/* Header */}
-      <header className="flex items-center justify-between px-4 py-2 border-b border-border shrink-0">
+      <header className="flex items-center justify-between px-3 sm:px-4 py-2 border-b border-border shrink-0">
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
             <Radio className="w-4 h-4 text-primary" />
@@ -565,21 +637,9 @@ export function MobilePlayer() {
           </div>
         </div>
         
-        {/* Volume control */}
-        <div className="flex items-center gap-2 flex-1 max-w-32 mx-4">
-          <Volume2 className="w-4 h-4 text-muted-foreground" />
-          <Slider
-            value={[volume]}
-            onValueChange={handleVolumeChange}
-            max={100}
-            step={1}
-            className="w-full"
-          />
-        </div>
-
-        {/* Username / Settings / Menu */}
+        {/* Username / Settings / Menu - no volume in header */}
         <div className="flex items-center gap-1">
-          {credentials?.username && <span className="text-sm text-muted-foreground mr-2">{credentials.username}</span>}
+          {credentials?.username && <span className="text-xs sm:text-sm text-muted-foreground mr-1 sm:mr-2 hidden sm:inline">{credentials.username}</span>}
           <SettingsDialog 
             onClearData={() => {
               clearCSVData();
@@ -589,17 +649,17 @@ export function MobilePlayer() {
           />
           <button
             onClick={() => setSidebarOpen(true)}
-            className="p-2 text-muted-foreground hover:text-foreground"
+            className="p-1.5 sm:p-2 text-muted-foreground hover:text-foreground"
           >
-            <Menu className="w-5 h-5" />
+            <Menu className="w-4 h-4 sm:w-5 sm:h-5" />
           </button>
         </div>
       </header>
 
       {/* Main content */}
-      <main className="flex-1 flex flex-col px-4 py-4 overflow-hidden">
+      <main className="flex-1 flex flex-col px-3 sm:px-4 py-3 sm:py-4 overflow-hidden">
         {/* Album cover */}
-        <div className="relative w-full max-w-[280px] mx-auto aspect-square mb-4">
+        <div className="relative w-full max-w-[240px] sm:max-w-[280px] mx-auto aspect-square mb-3 sm:mb-4">
           <MobileAlbumCover
             track={currentTrack}
             isPlaying={isPlaying}
@@ -625,8 +685,8 @@ export function MobilePlayer() {
 
         {/* Source badge */}
         {currentTrack && (
-          <div className="flex justify-center mb-2">
-            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs bg-muted text-muted-foreground border border-border">
+          <div className="flex justify-center mb-1.5 sm:mb-2">
+            <span className="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-0.5 sm:py-1 rounded-full text-[10px] sm:text-xs bg-muted text-muted-foreground border border-border">
               {currentTrack.source === 'wantlist' ? '♡ Wantlist' : '◎ Collection'}
             </span>
           </div>
@@ -636,7 +696,7 @@ export function MobilePlayer() {
         <MobileTrackInfo track={currentTrack} />
 
         {/* Divider */}
-        <div className="border-t border-border/50 my-4" />
+        <div className="border-t border-border/50 my-2 sm:my-3" />
 
         {/* Timeline */}
         <MobileTimeline
@@ -646,7 +706,7 @@ export function MobilePlayer() {
         />
 
         {/* Divider */}
-        <div className="border-t border-border/50 my-4" />
+        <div className="border-t border-border/50 my-2 sm:my-3" />
 
         {/* Transport controls */}
         <MobileTransportControls
@@ -654,6 +714,7 @@ export function MobilePlayer() {
           isLiked={currentTrack ? isTrackLiked(currentTrack.id) : false}
           isDisliked={currentTrack ? isTrackDisliked(currentTrack.id) : false}
           isShuffle={isShuffle}
+          volume={volume}
           onTogglePlay={togglePlay}
           onPrevious={skipPrev}
           onNext={skipNext}
@@ -662,6 +723,7 @@ export function MobilePlayer() {
           onLike={handleLikeTrack}
           onDislike={handleDislikeTrack}
           onToggleShuffle={toggleShuffle}
+          onVolumeChange={handleVolumeChange}
         />
       </main>
 

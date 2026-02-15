@@ -9,6 +9,12 @@ interface PlaylistSidebarProps {
 }
 
 export function PlaylistSidebar({ playlist, currentIndex, onSelectTrack }: PlaylistSidebarProps) {
+  console.log(`[PlaylistSidebar] Rendering with ${playlist.length} tracks`);
+  if (playlist.length > 0) {
+    console.log('[PlaylistSidebar] First track cover URL:', playlist[0].coverUrl);
+    console.log('[PlaylistSidebar] Current track cover URL:', playlist[currentIndex]?.coverUrl);
+  }
+  
   return (
     <div className="w-full h-full bg-card border-l border-border flex flex-col">
       {/* Header */}
@@ -44,9 +50,18 @@ export function PlaylistSidebar({ playlist, currentIndex, onSelectTrack }: Playl
 
               {/* Cover art */}
               <div
-                className="w-10 h-10 rounded-md bg-cover bg-center flex-shrink-0"
-                style={{ backgroundImage: `url(${track.coverUrl})` }}
-              />
+                className="w-10 h-10 rounded-md bg-cover bg-center flex-shrink-0 relative overflow-hidden"
+                style={track.coverUrl && track.coverUrl !== '/placeholder.svg' && !track.coverUrl.includes('placeholder') 
+                  ? { backgroundImage: `url(${track.coverUrl})` }
+                  : { background: 'linear-gradient(135deg, hsl(var(--primary) / 0.2) 0%, hsl(var(--accent) / 0.2) 100%)' }
+                }
+              >
+                {(!track.coverUrl || track.coverUrl === '/placeholder.svg' || track.coverUrl.includes('placeholder')) && (
+                  <div className="absolute inset-0 flex items-center justify-center text-xs">
+                    🎵
+                  </div>
+                )}
+              </div>
 
               {/* Track info */}
               <div className="flex-1 min-w-0">

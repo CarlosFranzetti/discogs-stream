@@ -3,6 +3,9 @@ import { Track } from '@/types/track';
 import { mockTracks, shuffleTracks } from '@/data/mockTracks';
 
 export function usePlayer(initialTracks?: Track[], dislikedTracks?: Track[]) {
+  // Track if we're using demo/mock data
+  const [isUsingMockData, setIsUsingMockData] = useState(true);
+  
   const [playlist, setPlaylist] = useState<Track[]>(() => {
     if (initialTracks && initialTracks.length > 0) {
       return shuffleTracks(initialTracks);
@@ -30,12 +33,27 @@ export function usePlayer(initialTracks?: Track[], dislikedTracks?: Track[]) {
 
   // Update playlist when initialTracks changes
   useEffect(() => {
-    if (!initialTracks || initialTracks.length === 0) return;
+    if (!initialTracks || initialTracks.length === 0) {
+      console.log('[usePlayer] No initial tracks yet, keeping current playlist');
+      return;
+    }
 
     const filtered = filterDisliked(initialTracks);
     
+    console.log(`[usePlayer] Initial tracks changed: ${filtered.length} tracks, isUsingMockData: ${isUsingMockData}`);
+    
     setPlaylist(prev => {
+      // If we're currently using mock data and real data arrives, replace completely
+      if (isUsingMockData && filtered.length > 0) {
+        console.log(`[Playlist] Replacing ${prev.length} mock tracks with ${filtered.length} real tracks`);
+        setIsUsingMockData(false);
+        setCurrentIndex(0); // Reset to start of new playlist
+        return isShuffle ? shuffleTracks(filtered) : filtered;
+      }
+
       if (prev.length === 0) {
+        console.log(`[Playlist] Initializing playlist with ${filtered.length} tracks`);
+        setIsUsingMockData(false);
         return isShuffle ? shuffleTracks(filtered) : filtered;
       }
 
@@ -51,11 +69,6 @@ export function usePlayer(initialTracks?: Track[], dislikedTracks?: Track[]) {
       const prevIds = new Set(prev.map(t => t.id));
       const newTracks = filtered.filter(t => !prevIds.has(t.id));
       
-      // If no new tracks and no changes to existing ones (deep equality check too expensive, just reference check?)
-      // Actually, since we created new objects in updatedPlaylist, strictly speaking it's always "new" array if mapped.
-      // But if we want to avoid unnecessary re-renders or logic:
-      // We can rely on React's state update.
-      
       if (newTracks.length === 0) {
         // Handle removals (dislikes)
         const currentIds = new Set(filtered.map(t => t.id));
@@ -63,7 +76,7 @@ export function usePlayer(initialTracks?: Track[], dislikedTracks?: Track[]) {
         return finalPlaylist;
       }
 
-      // Append new tracks
+      // Append new tracks (e.g., wantlist after collection)
       if (isShuffle) {
         return [...updatedPlaylist, ...shuffleTracks(newTracks)];
       } else {
@@ -71,7 +84,7 @@ export function usePlayer(initialTracks?: Track[], dislikedTracks?: Track[]) {
         return filtered; 
       }
     });
-  }, [initialTracks, dislikedTracks, isShuffle, filterDisliked]);
+  }, [initialTracks, dislikedTracks, isShuffle, filterDisliked, isUsingMockData]);
 
   // Adjust currentIndex if the current track moves
   // This is tricky because `setPlaylist` is async. 
@@ -166,13 +179,25 @@ export function usePlayer(initialTracks?: Track[], dislikedTracks?: Track[]) {
   const skipNext = useCallback(() => {
     setCurrentTime(0);
     setCurrentIndex((prev) => (prev + 1) % playlist.length);
-    setIsPlaying(true);
+    // Force playback to start immediately
+    setTimeout(() => {
+      if (playerRef.current && typeof playerRef.current.playVideo === 'function') {
+        playerRef.current.playVideo();
+      }
+      setIsPlaying(true);
+    }, 100);
   }, [playlist.length]);
 
   const skipPrev = useCallback(() => {
     setCurrentTime(0);
     setCurrentIndex((prev) => (prev - 1 + playlist.length) % playlist.length);
-    setIsPlaying(true);
+    // Force playback to start immediately
+    setTimeout(() => {
+      if (playerRef.current && typeof playerRef.current.playVideo === 'function') {
+        playerRef.current.playVideo();
+      }
+      setIsPlaying(true);
+    }, 100);
   }, [playlist.length]);
 
   const seekTo = useCallback((time: number) => {
@@ -197,7 +222,13 @@ export function usePlayer(initialTracks?: Track[], dislikedTracks?: Track[]) {
   const selectTrack = useCallback((index: number) => {
     setCurrentTime(0);
     setCurrentIndex(index);
-    setIsPlaying(true);
+    // Force playback to start immediately
+    setTimeout(() => {
+      if (playerRef.current && typeof playerRef.current.playVideo === 'function') {
+        playerRef.current.playVideo();
+      }
+      setIsPlaying(true);
+    }, 100);
   }, []);
 
   const toggleVideo = useCallback(() => {

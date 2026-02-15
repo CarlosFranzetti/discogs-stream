@@ -114,12 +114,6 @@ export function useBackgroundVerifier({
              foundViaResolver = true;
              console.log(`[Verifier] Resolved via Discogs/Cache: ${videoId}`);
            }
-           
-           // Priority: Use Discogs cover art if available
-           if (media.coverUrl && media.coverUrl !== updatedTrack.coverUrl) {
-             updatedTrack.coverUrl = media.coverUrl;
-             changed = true;
-           }
         }
 
         // 2. Fallback to expensive search (only if quota allows)
