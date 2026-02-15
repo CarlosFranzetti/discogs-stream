@@ -102,6 +102,10 @@ export function Player() {
     searchForVideo,
     isQuotaExceeded,
   } = useYouTubeSearch();
+  const {
+    scrapeCoverArt,
+    batchLoadCoverArtFromDb,
+  } = useCoverArtScraper();
   const [discogsTracks, setDiscogsTracks] = useState<Track[]>([]);
 
   // Helper to update a track in discogsTracks (used by cover art scraper)
@@ -222,6 +226,35 @@ export function Player() {
     removeFromPlaylist(currentTrack.id);
     skipNext();
   }, [currentTrack, persistDislike, removeFromPlaylist, skipNext]);
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyPress = (e: KeyboardEvent) => {
+      // Don't trigger if typing in input
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
+
+      switch (e.key) {
+        case ' ':
+          e.preventDefault();
+          togglePlay();
+          break;
+        case ',':
+        case '<':
+          e.preventDefault();
+          skipPrev();
+          break;
+        case '.':
+        case '>':
+          e.preventDefault();
+          skipNext();
+          break;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyPress);
+    return () => window.removeEventListener('keydown', handleKeyPress);
+  }, [togglePlay, skipPrev, skipNext]);
 
   useEffect(() => {
     const username = credentials?.username;

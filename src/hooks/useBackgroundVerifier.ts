@@ -73,7 +73,7 @@ export function useBackgroundVerifier({
   }, [tracks, currentTrack]);
 
   useEffect(() => {
-    if (isQuotaExceeded) return;
+    // Don't stop entirely when quota exceeded - we can still use free methods
     
     // Reset verified set if tracks change significantly (length check is a simple proxy)
     if (Math.abs(tracks.length - verifiedIds.current.size) > tracks.length) {
@@ -86,7 +86,6 @@ export function useBackgroundVerifier({
 
     const processNext = async () => {
       if (processingRef.current) return;
-      if (isQuotaExceeded) return;
 
       const track = getNextTrackToVerify();
       if (!track) {
