@@ -3,6 +3,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sh
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Track } from '@/types/track';
 import { Music, Heart, ShoppingCart, Disc3, User, Ban, Loader2, Search } from 'lucide-react';
+import { useSettings } from '@/hooks/useSettings';
 
 interface MobilePlaylistSheetProps {
   isOpen: boolean;
@@ -36,6 +37,9 @@ export function MobilePlaylistSheet({
   const [retryingId, setRetryingId] = useState<string | null>(null);
   const retriedOnce = useRef<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState('');
+  const [sortBy, setSortBy] = useState<'none' | 'artist' | 'title' | 'genre'>('none');
+  const { settings } = useSettings();
+  const isTight = settings.playlistSize === 'tight';
 
   const displayedPlaylist = searchQuery.trim()
     ? playlist.filter(t =>
@@ -43,6 +47,16 @@ export function MobilePlaylistSheet({
         t.artist.toLowerCase().includes(searchQuery.toLowerCase())
       )
     : playlist;
+
+  const sortedPlaylist = sortBy === 'none'
+    ? displayedPlaylist
+    : [...displayedPlaylist].sort((a, b) => {
+        let va = '', vb = '';
+        if (sortBy === 'artist') { va = a.artist; vb = b.artist; }
+        else if (sortBy === 'title') { va = a.title; vb = b.title; }
+        else if (sortBy === 'genre') { va = a.genre || ''; vb = b.genre || ''; }
+        return va.localeCompare(vb);
+      });
 
   // When a retrying track gets resolved, clear the retryingId
   useEffect(() => {
@@ -118,82 +132,104 @@ export function MobilePlaylistSheet({
         </div>
 
         <ScrollArea className="flex-1">
-          <div className="py-2">
-            {displayedPlaylist.map((track) => {
+          <div className={isTight ? 'py-1' : 'py-2'}>
+            {sortedPlaylist.map((track, idx) => {
               const index = playlist.indexOf(track);
               const isNonWorking = track.workingStatus === 'non_working';
               const isPending = !track.youtubeId && track.workingStatus !== 'working' && !isNonWorking;
               const isRetrying = retryingId === track.id;
               const opacityClass = isNonWorking ? 'opacity-50' : isPending ? 'opacity-75' : '';
+              const coverSize = isTight ? 'w-8 h-8' : 'w-10 h-10';
+              const entryPadding = isTight ? 'py-1.5' : 'py-2.5';
 
               return (
-                <button
-                  key={track.id}
-                  onClick={() => handleTrackClick(track, index)}
-                  className={`w-full flex items-center gap-3 px-4 py-2.5 transition-colors text-left ${
-                    index === currentIndex
-                      ? 'bg-primary/10 border-l-2 border-primary'
-                      : 'hover:bg-muted/50'
-                  } ${opacityClass} ${isNonWorking && !isRetrying ? 'cursor-pointer' : ''} ${isRetrying ? 'cursor-wait' : ''}`}
-                >
-                  {/* Track number / playing indicator */}
-                  <div className="w-6 text-center shrink-0">
-                    {index === currentIndex ? (
-                      <span className="text-primary text-lg">•</span>
-                    ) : (
-                      <span className="text-xs text-muted-foreground">{index + 1}</span>
-                    )}
-                  </div>
+                <div key={track.id}>
+                  <button
+                    onClick={() => handleTrackClick(track, index)}
+                    className={`w-full flex items-center gap-2.5 px-4 ${entryPadding} transition-colors text-left ${
+                      index === currentIndex
+                        ? 'bg-primary/10 border-l-2 border-primary'
+                        : 'hover:bg-muted/50'
+                    } ${opacityClass} ${isNonWorking && !isRetrying ? 'cursor-pointer' : ''} ${isRetrying ? 'cursor-wait' : ''}`}
+                  >
+                    {/* Track number / playing indicator */}
+                    <div className="w-5 text-center shrink-0">
+                      {index === currentIndex ? (
+                        <span className="text-primary text-base">•</span>
+                      ) : (
+                        <span className="text-[10px] text-muted-foreground">{index + 1}</span>
+                      )}
+                    </div>
 
-                  {/* Cover */}
-                  <div className="w-10 h-10 rounded overflow-hidden bg-muted shrink-0 relative">
-                    {track.coverUrl && track.coverUrl !== '/placeholder.svg' && !track.coverUrl.includes('placeholder') ? (
-                      <img
-                        src={track.coverUrl}
-                        alt={track.title}
-                        className="w-full h-full object-cover"
-                        onError={(e) => {
-                          e.currentTarget.style.display = 'none';
-                        }}
-                      />
-                    ) : (
-                      <div className="absolute inset-0 flex items-center justify-center text-xs bg-gradient-to-br from-primary/20 to-accent/20">
-                        🎵
-                      </div>
-                    )}
-                    {/* Status badge */}
-                    {isRetrying && (
-                      <div className="absolute bottom-0 right-0 w-4 h-4 bg-background/80 rounded-tl flex items-center justify-center">
-                        <Loader2 className="w-2.5 h-2.5 text-primary animate-spin" />
-                      </div>
-                    )}
-                    {isNonWorking && !isRetrying && (
-                      <div className="absolute bottom-0 right-0 w-4 h-4 bg-background/80 rounded-tl flex items-center justify-center">
-                        <Ban className="w-2.5 h-2.5 text-muted-foreground" />
-                      </div>
-                    )}
-                  </div>
+                    {/* Cover */}
+                    <div className={`${coverSize} rounded overflow-hidden bg-muted shrink-0 relative`}>
+                      {track.coverUrl && track.coverUrl !== '/placeholder.svg' && !track.coverUrl.includes('placeholder') ? (
+                        <img
+                          src={track.coverUrl}
+                          alt={track.title}
+                          className="w-full h-full object-cover"
+                          onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                        />
+                      ) : (
+                        <div className="absolute inset-0 flex items-center justify-center text-xs bg-gradient-to-br from-primary/20 to-accent/20">
+                          🎵
+                        </div>
+                      )}
+                      {isRetrying && (
+                        <div className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-background/80 rounded-tl flex items-center justify-center">
+                          <Loader2 className="w-2 h-2 text-primary animate-spin" />
+                        </div>
+                      )}
+                      {isNonWorking && !isRetrying && (
+                        <div className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-background/80 rounded-tl flex items-center justify-center">
+                          <Ban className="w-2 h-2 text-muted-foreground" />
+                        </div>
+                      )}
+                    </div>
 
-                  {/* Track info */}
-                  <div className="flex-1 min-w-0">
-                    <p className={`text-sm truncate ${index === currentIndex ? 'text-primary font-medium' : 'text-foreground'}`}>
-                      {track.title}
-                    </p>
-                    <p className="text-xs text-muted-foreground truncate">{track.artist}</p>
-                  </div>
+                    {/* Track info */}
+                    <div className="flex-1 min-w-0">
+                      <p className={`${isTight ? 'text-xs' : 'text-sm'} truncate leading-tight ${index === currentIndex ? 'text-primary font-medium' : 'text-foreground'}`}>
+                        {track.title}
+                      </p>
+                      <p className={`${isTight ? 'text-[10px]' : 'text-xs'} text-muted-foreground truncate leading-tight`}>{track.artist}</p>
+                    </div>
 
-                  {/* Source indicator */}
-                  <div className="text-muted-foreground shrink-0">
-                    {getSourceIcon(track.source)}
-                  </div>
-                </button>
+                    {/* Source indicator */}
+                    <div className="text-muted-foreground shrink-0">
+                      {getSourceIcon(track.source)}
+                    </div>
+                  </button>
+
+                  {/* Thin partial-width divider in tight mode */}
+                  {isTight && idx < sortedPlaylist.length - 1 && (
+                    <div className="mx-[52px] border-t border-border/10" />
+                  )}
+                </div>
               );
             })}
           </div>
         </ScrollArea>
 
-        {/* Footer with user info */}
+        {/* Footer with sort chips + user info */}
         <div className="border-t border-border p-4 space-y-3">
+          {/* Sort chips */}
+          <div className="flex gap-2">
+            {(['artist', 'title', 'genre'] as const).map((key) => (
+              <button
+                key={key}
+                onClick={() => setSortBy(prev => prev === key ? 'none' : key)}
+                className={`px-2.5 py-1 rounded-full text-xs border transition-colors capitalize ${
+                  sortBy === key
+                    ? 'bg-primary/15 text-primary border-primary'
+                    : 'bg-muted text-muted-foreground border-transparent'
+                }`}
+              >
+                {key.charAt(0).toUpperCase() + key.slice(1)}
+              </button>
+            ))}
+          </div>
+
           {isDiscogsAuthenticated && discogsUsername && (
             <div className="flex items-center justify-between text-sm">
               <div className="flex items-center gap-2">

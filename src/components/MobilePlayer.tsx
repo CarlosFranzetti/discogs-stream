@@ -16,7 +16,7 @@ import { MobilePlaylistSheet } from './MobilePlaylistSheet';
 import { MobileTitleScreen } from './MobileTitleScreen';
 import { Track } from '@/types/track';
 import { readDiscogsCache, writeDiscogsCache } from '@/data/discogsCache';
-import { Loader2, Radio, Menu } from 'lucide-react';
+import { Loader2, Disc3, Menu } from 'lucide-react';
 import { SourceType } from './SourceFilters';
 import { QuotaBanner } from './QuotaBanner';
 import { toast } from 'sonner';
@@ -134,6 +134,7 @@ export function MobilePlayer() {
   const [hasUserInteracted, setHasUserInteracted] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [volume, setVolume] = useState(100);
+  const [showReloadConfirm, setShowReloadConfirm] = useState(false);
 
   useEffect(() => {
     verifiedTracksRef.current = verifiedTracks;
@@ -168,6 +169,8 @@ export function MobilePlayer() {
     skipForward,
     skipBackward,
     selectTrack,
+    setCurrentIndex,
+    setCurrentTime,
     setIsPlaying,
     setPlaylist,
     removeFromPlaylist,
@@ -591,23 +594,23 @@ export function MobilePlayer() {
     }
   }, [currentTrack, getSearchUrl]);
 
+  const sourceLabel = useMemo(() => {
+    const c = activeSources.includes('collection');
+    const w = activeSources.includes('wantlist');
+    return c && w ? 'Collection & Wantlist' : c ? 'Collection' : 'Wantlist';
+  }, [activeSources]);
+
   const handleStartListening = useCallback(() => {
     // If audio is already preloaded for a different track, sync to what's actually playing
     if (currentVideoId) {
       const playingIdx = playlist.findIndex(t => t.youtubeId === currentVideoId);
       if (playingIdx !== -1 && playingIdx !== currentIndex) {
-        selectTrack(playingIdx);
+        setCurrentIndex(playingIdx);
+        setCurrentTime(0);
       }
     }
     setHasUserInteracted(true);
-    // Start playback as soon as we have at least one track
-    if (currentTrack?.youtubeId || currentVideoId) {
-      setTimeout(() => {
-        playerRef.current?.playVideo();
-        setIsPlaying(true);
-      }, 100);
-    }
-  }, [playerRef, currentTrack, currentVideoId, playlist, currentIndex, selectTrack, setIsPlaying]);
+  }, [currentVideoId, playlist, currentIndex, setCurrentIndex, setCurrentTime]);
 
   // CSV upload handlers with toast notifications and cover art scraping
   const handleCollectionCSVUpload = async (file: File) => {
@@ -772,21 +775,36 @@ export function MobilePlayer() {
   // Main player view
   return (
     <div className="flex flex-col h-screen bg-background overflow-hidden">
-      <div className="flex flex-col flex-1 safe-area overflow-hidden min-w-0">
+      <div className="flex flex-col flex-1 safe-area overflow-hidden min-w-0 max-w-[440px] mx-auto w-full">
       {/* Header */}
-      <header className="flex items-center justify-between px-3 sm:px-4 py-2 border-b border-border shrink-0">
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
-            <Radio className="w-4 h-4 text-primary" />
+      <header className="flex items-center justify-between px-3 sm:px-4 py-2 border-b border-border shrink-0 gap-2">
+        {/* Logo — Option A: Vinyl aesthetic. Click to return to onboarding. */}
+        <button
+          onClick={() => setShowReloadConfirm(true)}
+          className="flex items-center gap-2 group focus:outline-none shrink-0"
+          aria-label="Discogs Stream — click to reload"
+        >
+          <div className="relative w-8 h-8 rounded-full bg-gradient-to-br from-primary/30 via-primary/10 to-transparent border border-primary/20 flex items-center justify-center">
+            <Disc3 className="w-[18px] h-[18px] text-primary transition-transform duration-1000 group-hover:rotate-180" />
           </div>
-          <div>
-            <h1 className="text-sm font-bold text-foreground leading-tight">Discogs</h1>
-            <span className="text-xs text-primary">Stream</span>
+          <div className="flex flex-col items-start leading-none">
+            <span className="text-[17px] font-black text-foreground tracking-[-0.03em] leading-none">Discogs</span>
+            <span className="text-[9px] font-semibold text-foreground/20 ml-1.5 mt-0.5 tracking-[0.2em] leading-none uppercase">Stream</span>
           </div>
+        </button>
+
+        {/* Centre: track count + source — fills the space between logo and buttons */}
+        <div className="flex-1 flex flex-col items-center min-w-0 px-1">
+          <span className="text-[10px] text-muted-foreground/70 truncate">
+            {currentTrack?.source === 'wantlist' ? '♡ Wantlist' : '◎ Collection'}
+          </span>
+          <span className="text-[9px] text-muted-foreground/45 truncate">
+            {playlist.length} tracks · {sourceLabel}
+          </span>
         </div>
 
-        {/* Username / Settings / Menu */}
-        <div className="flex items-center gap-1">
+        {/* Settings + Menu */}
+        <div className="flex items-center gap-1 shrink-0">
           {credentials?.username && <span className="text-xs sm:text-sm text-muted-foreground mr-1 sm:mr-2 hidden sm:inline">{credentials.username}</span>}
           <SettingsDialog
             onClearData={() => {
@@ -808,10 +826,39 @@ export function MobilePlayer() {
         </div>
       </header>
 
+      {/* Reload confirmation dialog */}
+      {showReloadConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="bg-card border border-border rounded-2xl p-6 mx-4 shadow-2xl max-w-xs w-full">
+            <h2 className="text-base font-semibold text-foreground mb-1">Return to start?</h2>
+            <p className="text-sm text-muted-foreground mb-5">
+              Takes you back to the import screen. Your collection data is preserved.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowReloadConfirm(false)}
+                className="flex-1 px-4 py-2 rounded-xl border border-border text-sm text-foreground hover:bg-muted transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => { setHasUserInteracted(false); setShowReloadConfirm(false); }}
+                className="flex-1 px-4 py-2 rounded-xl bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
+              >
+                Reload
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Main content */}
-      <main className="flex-1 flex flex-col px-3 sm:px-4 py-3 sm:py-4 overflow-hidden">
-        {/* Album cover */}
-        <div className="relative w-full max-w-[240px] sm:max-w-[280px] mx-auto aspect-square mb-3 sm:mb-4">
+      <main className="flex-1 flex flex-col px-3 sm:px-4 py-2 overflow-hidden min-h-0">
+        {/* Album cover — clamp grows with svh, max 250px gives more presence on desktop */}
+        <div
+          className="relative mx-auto mb-5 shrink-0"
+          style={{ width: 'clamp(180px, 28svh, 250px)', height: 'clamp(180px, 28svh, 250px)' }}
+        >
           <MobileAlbumCover
             track={currentTrack}
             isPlaying={isPlaying}
@@ -819,30 +866,22 @@ export function MobilePlayer() {
           />
         </div>
 
-        {/* Source badge */}
-        {currentTrack && (
-          <div className="flex justify-center mb-1.5 sm:mb-2">
-            <span className="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-0.5 sm:py-1 rounded-full text-[10px] sm:text-xs bg-muted text-muted-foreground border border-border">
-              {currentTrack.source === 'wantlist' ? '♡ Wantlist' : '◎ Collection'}
-            </span>
-          </div>
-        )}
-
         {/* Track info */}
         <MobileTrackInfo track={currentTrack} />
 
         {/* Divider */}
-        <div className="border-t border-border/50 my-2 sm:my-3" />
+        <div className="border-t border-border/50 my-1.5 shrink-0" />
 
         {/* Timeline */}
         <MobileTimeline
           currentTime={currentTime}
           duration={currentTrack?.duration || 0}
           onSeek={seekTo}
+          trackId={currentTrack?.id}
         />
 
-        {/* Divider */}
-        <div className="border-t border-border/50 my-2 sm:my-3" />
+        {/* Divider + deliberate space before transport */}
+        <div className="border-t border-border/50 mt-1.5 mb-2.5 shrink-0" />
 
         {/* Transport controls */}
         <MobileTransportControls
@@ -862,30 +901,33 @@ export function MobilePlayer() {
           onVolumeChange={handleVolumeChange}
         />
 
-        {/* Bottom status bar — Finding... and Quota notice */}
-        {(isSearching || isQuotaExceeded) && (
-          <div className="mt-auto pt-2">
-            <div className="border-t border-border/30" />
-            <div className="flex flex-col gap-1.5 pt-2 pb-1 px-1">
-              {isSearching && (
-                <p className="text-[11px] text-muted-foreground/50 text-center tracking-wide">
-                  Finding stream...
-                </p>
-              )}
-              {isQuotaExceeded && (
-                <div className="flex items-center justify-between text-amber-500/80 dark:text-amber-400/80">
-                  <span className="text-xs">Demo mode — YouTube quota exceeded</span>
-                  <button
-                    onClick={handleOpenInYouTube}
-                    className="text-xs font-medium text-amber-500 dark:text-amber-400 hover:underline flex items-center gap-1 shrink-0 ml-3"
-                  >
-                    Open in YouTube ↗
-                  </button>
-                </div>
-              )}
+        {/* Bottom status bar — always rendered to prevent layout shift */}
+        <div className="mt-2 shrink-0">
+          {/* div line */}
+          <div className="border-t border-border/30" />
+          <div className="px-1 pt-1.5 pb-1">
+            {/* Quota row — text-[11px] (same as Finding stream), /70 (15% less bright than /80) */}
+            <div className={`flex items-center gap-2 justify-center transition-opacity duration-200 ${isQuotaExceeded ? 'opacity-100' : 'opacity-0 pointer-events-none select-none'}`}>
+              <span className="text-[11px] text-amber-500/70 dark:text-amber-400/70">YouTube quota exceeded</span>
+              <button
+                onClick={handleOpenInYouTube}
+                className="text-[11px] text-amber-500/70 dark:text-amber-400/70 hover:underline shrink-0"
+              >
+                Open in YouTube ↗
+              </button>
             </div>
+            {/* space */}
+            <div className="mt-1" />
+            {/* div */}
+            <div className="border-t border-border/20" />
+            {/* less space than before */}
+            <div className="mt-0.5" />
+            {/* Finding stream — always rendered to prevent layout shift */}
+            <p className={`text-[11px] text-center tracking-wide transition-opacity duration-200 ${isSearching ? 'opacity-100 text-muted-foreground/50' : 'opacity-0 select-none'}`}>
+              Finding stream...
+            </p>
           </div>
-        )}
+        </div>
 
       </main>
 

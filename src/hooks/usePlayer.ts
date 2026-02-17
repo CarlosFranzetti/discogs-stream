@@ -308,6 +308,7 @@ export function usePlayer(initialTracks?: Track[], dislikedTracks?: Track[]) {
     skipBackward,
     selectTrack,
     toggleVideo,
+    setCurrentIndex,
     setCurrentTime,
     setIsPlaying,
     setPlaylist,

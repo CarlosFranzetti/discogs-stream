@@ -2,12 +2,11 @@ import { useRef } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Switch } from '@/components/ui/switch';
 import { useTheme } from '@/hooks/useTheme';
 import { useSettings } from '@/hooks/useSettings';
 import { useCSVCollection } from '@/hooks/useCSVCollection';
-import { Settings, Trash2, Palette, RefreshCw, Upload, Download, FileText, Music, Disc3, LogIn, AlertTriangle } from 'lucide-react';
+import { Settings, Trash2, Palette, RefreshCw, Upload, Download, Music, Disc3, LogIn, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import { Track } from '@/types/track';
 
@@ -105,6 +104,12 @@ export function SettingsDialog({
     }
   };
 
+  const THEMES = [
+    { value: 'dark', label: 'Dark' },
+    { value: 'theme-midnight', label: 'Midnight' },
+    { value: 'theme-vintage', label: 'Vintage' },
+  ] as const;
+
   return (
     <Dialog>
       <DialogTrigger asChild>
@@ -112,23 +117,22 @@ export function SettingsDialog({
           <Settings className="w-5 h-5" />
         </Button>
       </DialogTrigger>
-      <DialogContent className="sm:max-w-[500px] bg-card border-border max-h-[85vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>Settings</DialogTitle>
+      <DialogContent className="sm:max-w-[400px] bg-card border-border p-0 font-sans">
+        <DialogHeader className="px-5 pt-3 pb-2 border-b border-border/50">
+          <DialogTitle className="text-sm font-medium text-foreground">Settings</DialogTitle>
         </DialogHeader>
-        <div className="grid gap-6 py-4">
-          
-          {/* Appearance Section */}
-          <div className="space-y-4">
-            <h4 className="font-medium leading-none flex items-center gap-2 text-primary">
-              <Palette className="w-4 h-4" /> Appearance
-            </h4>
-            
+
+        <div className="px-5 pt-3 pb-4 space-y-3.5">
+
+          {/* Appearance */}
+          <div className="space-y-2.5">
+            <p className="text-[10px] font-semibold text-primary/70 uppercase tracking-widest flex items-center gap-1.5">
+              <Palette className="w-3 h-3" /> Appearance
+            </p>
+
+            {/* Pulse + Theme + Playlist size in one compact block */}
             <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <Label htmlFor="pulse-mode">Pulse Animation</Label>
-                <p className="text-xs text-muted-foreground">Enable record pulse effect</p>
-              </div>
+              <Label className="text-xs text-foreground/80">Pulse animation</Label>
               <Switch
                 id="pulse-mode"
                 checked={settings.pulseEnabled}
@@ -136,120 +140,105 @@ export function SettingsDialog({
               />
             </div>
 
-            <RadioGroup
-              defaultValue={theme}
-              onValueChange={(val) => setTheme(val as 'dark' | 'theme-midnight' | 'theme-vintage')}
-              className="grid gap-3 pt-2"
-            >
-              <div className="flex items-center space-x-2">
-                <RadioGroupItem value="dark" id="theme-dark" />
-                <Label htmlFor="theme-dark">Default Dark (Blue)</Label>
+            <div className="flex items-center justify-between gap-3">
+              <Label className="text-xs text-foreground/80 shrink-0">Theme</Label>
+              <div className="flex gap-1">
+                {THEMES.map(({ value, label }) => (
+                  <button
+                    key={value}
+                    onClick={() => setTheme(value)}
+                    className={`px-2.5 py-0.5 rounded-full text-[11px] border transition-colors ${
+                      theme === value
+                        ? 'bg-primary/15 text-primary border-primary/40'
+                        : 'bg-muted/60 text-muted-foreground border-transparent hover:border-border'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
               </div>
-              <div className="flex items-center space-x-2">
-                <RadioGroupItem value="theme-midnight" id="theme-midnight" />
-                <Label htmlFor="theme-midnight">Midnight (Purple)</Label>
+            </div>
+
+            <div className="flex items-center justify-between gap-3">
+              <Label className="text-xs text-foreground/80 shrink-0">Playlist size</Label>
+              <div className="flex gap-1">
+                {(['Tight', 'Loose'] as const).map((size) => (
+                  <button
+                    key={size}
+                    onClick={() => updateSetting('playlistSize', size.toLowerCase() as 'tight' | 'loose')}
+                    className={`px-2.5 py-0.5 rounded-full text-[11px] border transition-colors ${
+                      settings.playlistSize === size.toLowerCase()
+                        ? 'bg-primary/15 text-primary border-primary/40'
+                        : 'bg-muted/60 text-muted-foreground border-transparent hover:border-border'
+                    }`}
+                  >
+                    {size}
+                  </button>
+                ))}
               </div>
-              <div className="flex items-center space-x-2">
-                <RadioGroupItem value="theme-vintage" id="theme-vintage" />
-                <Label htmlFor="theme-vintage">Vintage (Green/Amber)</Label>
-              </div>
-            </RadioGroup>
-          </div>
-
-          <div className="border-t border-border" />
-
-          {/* Library Section */}
-          <div className="space-y-4">
-            <h4 className="font-medium leading-none flex items-center gap-2 text-primary">
-              <Music className="w-4 h-4" /> Library Management
-            </h4>
-            
-            <div className="grid gap-3">
-              <input
-                ref={collectionInputRef}
-                type="file"
-                accept=".csv"
-                onChange={handleCollectionUpload}
-                className="hidden"
-              />
-              <Button variant="outline" className="w-full justify-between" onClick={() => collectionInputRef.current?.click()} disabled={isCSVLoading}>
-                <span className="flex items-center gap-2"><Upload className="w-4 h-4" /> Import Collection CSV</span>
-                {collection.length > 0 && <span className="text-xs text-muted-foreground">{collection.length} items</span>}
-              </Button>
-
-              <input
-                ref={wantlistInputRef}
-                type="file"
-                accept=".csv"
-                onChange={handleWantlistUpload}
-                className="hidden"
-              />
-              <Button variant="outline" className="w-full justify-between" onClick={() => wantlistInputRef.current?.click()} disabled={isCSVLoading}>
-                <span className="flex items-center gap-2"><Upload className="w-4 h-4" /> Import Wantlist CSV</span>
-                {wantlist.length > 0 && <span className="text-xs text-muted-foreground">{wantlist.length} items</span>}
-              </Button>
             </div>
           </div>
 
-          <div className="border-t border-border" />
+          <div className="border-t border-border/40" />
 
-          {/* Export Section */}
-          <div className="space-y-4">
-            <h4 className="font-medium leading-none flex items-center gap-2 text-primary">
-              <FileText className="w-4 h-4" /> Export
-            </h4>
-            <div className="grid gap-2">
-              <Button variant="outline" onClick={handleExportCSV} className="w-full gap-2">
-                <Download className="w-4 h-4" /> Export Current Playlist (CSV)
+          {/* Library */}
+          <div className="space-y-2">
+            <p className="text-[10px] font-semibold text-primary/70 uppercase tracking-widest flex items-center gap-1.5">
+              <Music className="w-3 h-3" /> Library
+            </p>
+            <input ref={collectionInputRef} type="file" accept=".csv" onChange={handleCollectionUpload} className="hidden" />
+            <input ref={wantlistInputRef} type="file" accept=".csv" onChange={handleWantlistUpload} className="hidden" />
+
+            <div className="grid grid-cols-2 gap-2">
+              <Button variant="outline" size="sm" className="justify-between text-xs h-8 px-3" onClick={() => collectionInputRef.current?.click()} disabled={isCSVLoading}>
+                <span className="flex items-center gap-1.5"><Upload className="w-3 h-3" /> Collection</span>
+                {collection.length > 0 && <span className="text-muted-foreground">{collection.length}</span>}
               </Button>
-              <p className="text-xs text-muted-foreground text-center">
-                Use the CSV export to import your playlist into Spotify or Apple Music via third-party tools like Soundiiz or Tunemymusic.
-              </p>
+              <Button variant="outline" size="sm" className="justify-between text-xs h-8 px-3" onClick={() => wantlistInputRef.current?.click()} disabled={isCSVLoading}>
+                <span className="flex items-center gap-1.5"><Upload className="w-3 h-3" /> Wantlist</span>
+                {wantlist.length > 0 && <span className="text-muted-foreground">{wantlist.length}</span>}
+              </Button>
             </div>
+
+            <Button variant="outline" size="sm" onClick={handleExportCSV} className="w-full gap-2 text-xs h-8">
+              <Download className="w-3 h-3" /> Export Playlist CSV
+            </Button>
           </div>
 
-          <div className="border-t border-border" />
+          <div className="border-t border-border/40" />
 
-          {/* Discogs Account */}
-          <div className="space-y-4">
-            <h4 className="font-medium leading-none flex items-center gap-2 text-primary">
-              <Disc3 className="w-4 h-4" /> Discogs Account
-            </h4>
-            <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 flex items-start gap-2">
-              <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
-              <p className="text-xs text-muted-foreground">
-                Discogs login is experimental and may have issues. CSV import is recommended for a stable experience.
-              </p>
+          {/* Discogs */}
+          <div className="space-y-2">
+            <p className="text-[10px] font-semibold text-primary/70 uppercase tracking-widest flex items-center gap-1.5">
+              <Disc3 className="w-3 h-3" /> Discogs Account
+            </p>
+            <div className="rounded-md border border-amber-500/20 bg-amber-500/5 px-3 py-2 flex items-center gap-2">
+              <AlertTriangle className="w-3 h-3 text-amber-500/70 shrink-0" />
+              <p className="text-[11px] text-muted-foreground leading-snug">CSV import is recommended. OAuth is experimental.</p>
             </div>
             {isDiscogsAuthenticated && discogsUsername ? (
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 text-sm">
-                  <Disc3 className="w-4 h-4 text-primary" />
-                  <span className="text-foreground font-medium">{discogsUsername}</span>
-                  <span className="text-muted-foreground text-xs">connected</span>
+                <div className="flex items-center gap-2">
+                  <Disc3 className="w-3.5 h-3.5 text-primary" />
+                  <span className="text-sm font-medium">{discogsUsername}</span>
+                  <span className="text-xs text-muted-foreground">connected</span>
                 </div>
-                <Button variant="outline" size="sm" onClick={onDisconnectDiscogs} className="text-xs">
-                  Disconnect
-                </Button>
+                <Button variant="outline" size="sm" onClick={onDisconnectDiscogs} className="text-xs h-7">Disconnect</Button>
               </div>
             ) : (
-              <Button variant="outline" className="w-full gap-2" onClick={onConnectDiscogs}>
-                <LogIn className="w-4 h-4" /> Connect Discogs Account
+              <Button variant="outline" size="sm" className="w-full gap-2 text-xs h-8" onClick={onConnectDiscogs}>
+                <LogIn className="w-3 h-3" /> Connect Discogs Account
               </Button>
             )}
           </div>
 
-          <div className="border-t border-border" />
+          <div className="border-t border-border/40" />
 
-          {/* Danger Zone */}
-          <div className="space-y-4">
-            <h4 className="font-medium leading-none flex items-center gap-2 text-destructive">
-              <Trash2 className="w-4 h-4" /> Danger Zone
-            </h4>
-            <Button variant="destructive" onClick={handleClear} className="w-full gap-2">
-              <RefreshCw className="w-4 h-4" /> Clear All Data & Reset
-            </Button>
-          </div>
+          {/* Danger zone */}
+          <Button variant="destructive" size="sm" onClick={handleClear} className="w-full gap-2 text-xs h-8">
+            <RefreshCw className="w-3 h-3" /> Clear All Data & Reset
+          </Button>
+
         </div>
       </DialogContent>
     </Dialog>

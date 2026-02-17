@@ -2,10 +2,12 @@ import { useState, useEffect } from 'react';
 
 interface Settings {
   pulseEnabled: boolean;
+  playlistSize: 'tight' | 'loose';
 }
 
 const DEFAULT_SETTINGS: Settings = {
   pulseEnabled: true,
+  playlistSize: 'tight',
 };
 
 export function useSettings() {

@@ -14,6 +14,7 @@ export function PlaylistSidebar({ playlist, currentIndex, onSelectTrack, onRetry
   const [retryingId, setRetryingId] = useState<string | null>(null);
   const retriedOnce = useRef<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState('');
+  const [sortBy, setSortBy] = useState<'none' | 'artist' | 'title' | 'genre'>('none');
 
   const displayedPlaylist = searchQuery.trim()
     ? playlist.filter(t =>
@@ -21,6 +22,16 @@ export function PlaylistSidebar({ playlist, currentIndex, onSelectTrack, onRetry
         t.artist.toLowerCase().includes(searchQuery.toLowerCase())
       )
     : playlist;
+
+  const sortedPlaylist = sortBy === 'none'
+    ? displayedPlaylist
+    : [...displayedPlaylist].sort((a, b) => {
+        let va = '', vb = '';
+        if (sortBy === 'artist') { va = a.artist; vb = b.artist; }
+        else if (sortBy === 'title') { va = a.title; vb = b.title; }
+        else if (sortBy === 'genre') { va = a.genre || ''; vb = b.genre || ''; }
+        return va.localeCompare(vb);
+      });
 
   // When a retrying track gets resolved, clear the retryingId
   useEffect(() => {
@@ -90,9 +101,9 @@ export function PlaylistSidebar({ playlist, currentIndex, onSelectTrack, onRetry
       </div>
 
       {/* Track list */}
-      <ScrollArea className="flex-1">
+      <ScrollArea className="flex-1 min-h-0">
         <div className="p-2">
-          {displayedPlaylist.map((track) => {
+          {sortedPlaylist.map((track) => {
             const index = playlist.indexOf(track);
             const isNonWorking = track.workingStatus === 'non_working';
             const isPending = !track.youtubeId && track.workingStatus !== 'working' && !isNonWorking;
@@ -174,6 +185,23 @@ export function PlaylistSidebar({ playlist, currentIndex, onSelectTrack, onRetry
           })}
         </div>
       </ScrollArea>
+
+      {/* Sort chips */}
+      <div className="border-t border-border p-3 flex gap-2">
+        {(['artist', 'title', 'genre'] as const).map((key) => (
+          <button
+            key={key}
+            onClick={() => setSortBy(prev => prev === key ? 'none' : key)}
+            className={`px-2.5 py-1 rounded-full text-xs border transition-colors ${
+              sortBy === key
+                ? 'bg-primary/15 text-primary border-primary'
+                : 'bg-muted text-muted-foreground border-transparent'
+            }`}
+          >
+            {key.charAt(0).toUpperCase() + key.slice(1)}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }

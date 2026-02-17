@@ -24,6 +24,9 @@ export function YouTubePlayer({
   const containerRef = useRef<HTMLDivElement>(null);
   const isInitialized = useRef(false);
   const [currentVideoId, setCurrentVideoId] = useState(videoId);
+  // Keep a ref so the video-change effect can read the latest isPlaying without a stale closure
+  const isPlayingRef = useRef(isPlaying);
+  useEffect(() => { isPlayingRef.current = isPlaying; }, [isPlaying]);
 
   // When we have a search query but no videoId, we'll use YouTube's search feature
   const effectiveVideoId = videoId || currentVideoId;
@@ -56,7 +59,7 @@ export function YouTubePlayer({
         width: '100%',
         host: 'https://www.youtube-nocookie.com',
         playerVars: {
-          autoplay: 1,
+          autoplay: 0,
           controls: 0,
           disablekb: 1,
           modestbranding: 1,
@@ -68,20 +71,16 @@ export function YouTubePlayer({
         },
         events: {
           onReady: (event) => {
-            console.log('[YouTubePlayer] YouTube player ready, autoplay:', effectiveVideoId ? 'YES' : 'NO');
-            console.log('[YouTubePlayer] Player state:', event.target.getPlayerState());
+            console.log('[YouTubePlayer] YouTube player ready');
 
-            // CRITICAL: Unmute the player
             if (typeof event.target.unMute === 'function') {
               event.target.unMute();
               event.target.setVolume(100);
-              console.log('[YouTubePlayer] Player unmuted and volume set to 100');
             }
 
             onReady();
-            // Auto-play when ready
-            if (effectiveVideoId) {
-              console.log('[YouTubePlayer] Calling playVideo()');
+            // Only play if the app already wants playback (e.g. user pressed play before player was ready)
+            if (isPlayingRef.current && effectiveVideoId) {
               event.target.playVideo();
             }
           },
@@ -121,12 +120,13 @@ export function YouTubePlayer({
 
     if (videoId && videoId !== currentVideoId) {
       console.log('[YouTubePlayer] Loading new video:', videoId);
-      // Direct video ID provided
       if (typeof playerRef.current.loadVideoById === 'function') {
         playerRef.current.loadVideoById(videoId);
         setCurrentVideoId(videoId);
-        console.log('[YouTubePlayer] Video loaded, calling playVideo()');
-        playerRef.current.playVideo();
+        // Only auto-play when the app state says we're playing (e.g. user pressed next/prev)
+        if (isPlayingRef.current) {
+          playerRef.current.playVideo();
+        }
       }
     }
   }, [videoId, currentVideoId]);

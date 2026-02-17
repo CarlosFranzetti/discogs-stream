@@ -31,3 +31,4 @@ gha-creds-*.json
 .env.*
 !.env.example
 supabase/.temp/
+.vercel
