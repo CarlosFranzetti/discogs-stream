@@ -8,15 +8,18 @@ Dig through your existing records, browse your wantlist, and discover what you a
 
 ## ✨ Features
 
-🎸 **Browse Your Collection** - Explore all the vinyl records you already own from Discogs  
-📊 **CSV Import** - Load your collection and wantlist directly from CSV exports - no login required  
-🔍 **Background Scraping** - Automatically finds YouTube audio and high-quality cover art for your tracks in the background  
-💾 **Smart Persistence** - Saves all resolved metadata locally, so your collection loads instantly next time  
-🎨 **Themes** - Choose from multiple themes (Default Dark, Midnight Purple, Vintage Green) to match your vibe  
-🔀 **Shuffle Mode** - Seamlessly toggle between shuffled and sequential playback  
-📱 **Mobile First** - Designed for on-the-go access with a smooth, app-like experience  
-🎵 **YouTube & Bandcamp** - Dual playback providers for maximum compatibility  
-❤️ **Like/Dislike Tracks** - Curate your listening experience with track preferences  
+🎸 **Browse Your Collection** - Explore all the vinyl records you already own from Discogs
+📊 **CSV Import** - Load your collection and wantlist directly from CSV exports - no login required
+🔍 **Background Scraping** - Automatically finds YouTube audio and high-quality cover art for every track in the background
+💾 **Smart Persistence** - Saves all resolved metadata to the cloud database, so your collection loads instantly next time
+🎨 **Themes** - Choose from multiple themes (Default Dark, Midnight Purple, Vintage Green) to match your vibe
+🔀 **Smart Shuffle** - Toggle between shuffled and sequential (artist → album → track order) playback
+🔎 **Playlist Search** - Live-filter your queue by title or artist right in the playlist panel
+📱 **Mobile First** - Designed for on-the-go access with a smooth, app-like experience that fits any screen
+🎵 **YouTube & Bandcamp** - Dual playback providers for maximum compatibility
+❤️ **Like/Dislike Tracks** - Curate your listening experience with track preferences
+🛡️ **Failsafe Audio Chain** - yt-dlp → Invidious → YouTube API ensures playback even when quotas run out
+🔁 **Auto-Retry Unavailable Tracks** - Dimmed tracks retry in the background; tap once to queue the retry, tap again when resolved to play
 
 ---
 
@@ -24,7 +27,7 @@ Dig through your existing records, browse your wantlist, and discover what you a
 
 ### Prerequisites
 - Node.js & npm installed
-- A Discogs account (optional, for OAuth)
+- A Discogs account (optional, for OAuth via Settings)
 - Supabase project (for backend services)
 
 ### Installation
@@ -69,7 +72,7 @@ src/
 ├── components/          # 🧩 React components
 │   ├── ui/             # 🎨 shadcn-ui components
 │   ├── Player.tsx      # 🖥️ Desktop player
-│   └── MobilePlayer.tsx # 📱 Mobile-optimized player
+│   └── MobilePlayer.tsx # 📱 Mobile-optimized player (primary)
 ├── hooks/              # 🎣 Custom React hooks
 ├── pages/              # 📄 Route components
 ├── lib/                # 🔧 Utilities
@@ -84,19 +87,24 @@ src/
 - ⚡ **Vite** - Lightning-fast build tool
 - ⚛️ **React 18** - UI framework
 - 🎨 **Tailwind CSS + shadcn/ui** - Beautiful, accessible components
-- 🗄️ **Supabase** - Backend & edge functions
+- 🗄️ **Supabase** - Backend, edge functions & persistent cloud cache
 - 🎵 **YouTube IFrame API** - Audio playback
 - 🎶 **Bandcamp Embeds** - Alternative playback source
 - 📀 **Discogs API** - Collection & release data
+- 🔧 **yt-dlp + Invidious** - Quota-free direct audio extraction
 
 ---
 
 ## 🌟 Recent Updates (Feb 2026)
 
-✅ **Improved Background Verification** - The app now smartly prioritizes checking the track you are listening to, ensuring cover art and audio are ready when you need them  
-🎨 **Visual Polish** - Smoother animations, fixed waveform glitches, and new color themes  
-💾 **Offline-First Metadata** - CSV collections now behave like a native library, remembering every track you've matched  
-🎵 **Intelligent Playback** - Enhanced "Next" track logic ensures music starts immediately without needing to hit play again  
+🛡️ **Failsafe Audio Chain** - YouTube searches now always run through yt-dlp → Invidious → YouTube API, even after quota is exceeded. No more dead silence!
+💾 **Cloud Persistence on Import** - CSV imports now write resolved YouTube IDs and cover art straight to the database. Reopen the app and everything is there instantly
+🔀 **Sequential Shuffle** - Shuffle OFF now sorts your playlist by artist → album → track position. Toggle ON to randomize, toggle back OFF to restore the ordered view
+🔎 **Playlist Search** - New search bar at the top of the playlist panel lets you filter your queue live by title or artist
+🔁 **Smart Dimmed Tracks** - Tracks without a stream are dimmed (not removed). First tap triggers a silent background retry; second tap plays if it resolved. Background verifier also retries `non_working` tracks automatically over time
+📱 **Cleaner Title Screen** - The "Connect via CSV files below or sign in" card is gone. Just upload your CSV and hit Start Listening
+🎯 **Track Sync on Start** - If audio is already preloading when you tap Start Listening, the displayed track now correctly matches what's actually playing
+⚙️ **Discogs OAuth in Settings** - Discogs account connection moved to the Settings panel (gear icon) with a clear experimental warning
 
 ---
 
