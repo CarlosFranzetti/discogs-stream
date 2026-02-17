@@ -1,7 +1,8 @@
+import { useState, useRef, useEffect } from 'react';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Track } from '@/types/track';
-import { Music, Heart, ShoppingCart, Disc3, User } from 'lucide-react';
+import { Music, Heart, ShoppingCart, Disc3, User, Ban, Loader2 } from 'lucide-react';
 
 interface MobilePlaylistSheetProps {
   isOpen: boolean;
@@ -15,6 +16,7 @@ interface MobilePlaylistSheetProps {
   isUserLoggedIn: boolean;
   userEmail?: string;
   onSignOut: () => void;
+  onRetryTrack?: (track: Track) => void;
 }
 
 export function MobilePlaylistSheet({
@@ -29,21 +31,62 @@ export function MobilePlaylistSheet({
   isUserLoggedIn,
   userEmail,
   onSignOut: _onSignOut,
+  onRetryTrack,
 }: MobilePlaylistSheetProps) {
+  const [retryingId, setRetryingId] = useState<string | null>(null);
+  const retriedOnce = useRef<Set<string>>(new Set());
+
+  // When a retrying track gets resolved, clear the retryingId
+  useEffect(() => {
+    if (!retryingId) return;
+    const track = playlist.find(t => t.id === retryingId);
+    if (track?.workingStatus === 'working' && track?.youtubeId) {
+      setRetryingId(null);
+    }
+  }, [playlist, retryingId]);
+
+  const handleTrackClick = (track: Track, index: number) => {
+    const isNonWorking = track.workingStatus === 'non_working';
+
+    if (!isNonWorking) {
+      onSelectTrack(index);
+      onClose();
+      return;
+    }
+
+    if (retryingId === track.id) {
+      if (track.youtubeId && track.workingStatus === 'working') {
+        onSelectTrack(index);
+        onClose();
+      }
+      return;
+    }
+
+    if (retriedOnce.current.has(track.id)) {
+      if (track.youtubeId && track.workingStatus === 'working') {
+        onSelectTrack(index);
+        onClose();
+      }
+      return;
+    }
+
+    // First click: trigger background retry
+    retriedOnce.current.add(track.id);
+    setRetryingId(track.id);
+    onRetryTrack?.(track);
+  };
+
   const getSourceIcon = (source: string) => {
     switch (source) {
-      case 'wantlist':
-        return <Heart className="w-3 h-3" />;
-      case 'similar':
-        return <ShoppingCart className="w-3 h-3" />;
-      default:
-        return <Disc3 className="w-3 h-3" />;
+      case 'wantlist': return <Heart className="w-3 h-3" />;
+      case 'similar': return <ShoppingCart className="w-3 h-3" />;
+      default: return <Disc3 className="w-3 h-3" />;
     }
   };
 
   return (
     <Sheet open={isOpen} onOpenChange={onClose}>
-      <SheetContent side="right" className="w-[320px] p-0 flex flex-col">
+      <SheetContent side="right" className="w-[320px] sm:w-[380px] p-0 flex flex-col">
         <SheetHeader className="p-4 border-b border-border">
           <SheetTitle className="flex items-center gap-2 text-base">
             <Music className="w-4 h-4 text-primary" />
@@ -55,63 +98,72 @@ export function MobilePlaylistSheet({
         <ScrollArea className="flex-1">
           <div className="py-2">
             {playlist.map((track, index) => {
-              const isDimmed = track.workingStatus === 'non_working' || (!track.youtubeId && track.workingStatus !== 'working');
+              const isNonWorking = track.workingStatus === 'non_working';
+              const isPending = !track.youtubeId && track.workingStatus !== 'working' && !isNonWorking;
+              const isRetrying = retryingId === track.id;
+              const opacityClass = isNonWorking ? 'opacity-50' : isPending ? 'opacity-75' : '';
+
               return (
-              <button
-                key={track.id}
-                onClick={() => {
-                  onSelectTrack(index);
-                  onClose();
-                }}
-                className={`w-full flex items-center gap-3 px-4 py-2.5 transition-colors text-left ${
-                  index === currentIndex
-                    ? 'bg-primary/10 border-l-2 border-primary'
-                    : 'hover:bg-muted/50'
-                } ${isDimmed ? 'opacity-60' : ''}`}
-              >
-                {/* Track number / playing indicator */}
-                <div className="w-6 text-center shrink-0">
-                  {index === currentIndex ? (
-                    <span className="text-primary text-lg">•</span>
-                  ) : (
-                    <span className="text-xs text-muted-foreground">{index + 1}</span>
-                  )}
-                </div>
+                <button
+                  key={track.id}
+                  onClick={() => handleTrackClick(track, index)}
+                  className={`w-full flex items-center gap-3 px-4 py-2.5 transition-colors text-left ${
+                    index === currentIndex
+                      ? 'bg-primary/10 border-l-2 border-primary'
+                      : 'hover:bg-muted/50'
+                  } ${opacityClass} ${isNonWorking && !isRetrying ? 'cursor-pointer' : ''} ${isRetrying ? 'cursor-wait' : ''}`}
+                >
+                  {/* Track number / playing indicator */}
+                  <div className="w-6 text-center shrink-0">
+                    {index === currentIndex ? (
+                      <span className="text-primary text-lg">•</span>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">{index + 1}</span>
+                    )}
+                  </div>
 
-                {/* Cover */}
-                <div className="w-10 h-10 rounded overflow-hidden bg-muted shrink-0 relative">
-                  {track.coverUrl && track.coverUrl !== '/placeholder.svg' && !track.coverUrl.includes('placeholder') ? (
-                    <img
-                      src={track.coverUrl}
-                      alt={track.title}
-                      className="w-full h-full object-cover"
-                      onError={(e) => {
-                        e.currentTarget.style.display = 'none';
-                      }}
-                    />
-                  ) : (
-                    <div className="absolute inset-0 flex items-center justify-center text-xs bg-gradient-to-br from-primary/20 to-accent/20">
-                      🎵
-                    </div>
-                  )}
-                </div>
+                  {/* Cover */}
+                  <div className="w-10 h-10 rounded overflow-hidden bg-muted shrink-0 relative">
+                    {track.coverUrl && track.coverUrl !== '/placeholder.svg' && !track.coverUrl.includes('placeholder') ? (
+                      <img
+                        src={track.coverUrl}
+                        alt={track.title}
+                        className="w-full h-full object-cover"
+                        onError={(e) => {
+                          e.currentTarget.style.display = 'none';
+                        }}
+                      />
+                    ) : (
+                      <div className="absolute inset-0 flex items-center justify-center text-xs bg-gradient-to-br from-primary/20 to-accent/20">
+                        🎵
+                      </div>
+                    )}
+                    {/* Status badge */}
+                    {isRetrying && (
+                      <div className="absolute bottom-0 right-0 w-4 h-4 bg-background/80 rounded-tl flex items-center justify-center">
+                        <Loader2 className="w-2.5 h-2.5 text-primary animate-spin" />
+                      </div>
+                    )}
+                    {isNonWorking && !isRetrying && (
+                      <div className="absolute bottom-0 right-0 w-4 h-4 bg-background/80 rounded-tl flex items-center justify-center">
+                        <Ban className="w-2.5 h-2.5 text-muted-foreground" />
+                      </div>
+                    )}
+                  </div>
 
-                {/* Track info */}
-                <div className="flex-1 min-w-0">
-                  <p className={`text-sm truncate ${index === currentIndex ? 'text-primary font-medium' : 'text-foreground'}`}>
-                    {track.title}
-                  </p>
-                  <p className="text-xs text-muted-foreground truncate">{track.artist}</p>
-                  {isDimmed && (
-                    <p className="text-[10px] text-muted-foreground/80">No stream link yet</p>
-                  )}
-                </div>
+                  {/* Track info */}
+                  <div className="flex-1 min-w-0">
+                    <p className={`text-sm truncate ${index === currentIndex ? 'text-primary font-medium' : 'text-foreground'}`}>
+                      {track.title}
+                    </p>
+                    <p className="text-xs text-muted-foreground truncate">{track.artist}</p>
+                  </div>
 
-                {/* Source indicator */}
-                <div className="text-muted-foreground shrink-0">
-                  {getSourceIcon(track.source)}
-                </div>
-              </button>
+                  {/* Source indicator */}
+                  <div className="text-muted-foreground shrink-0">
+                    {getSourceIcon(track.source)}
+                  </div>
+                </button>
               );
             })}
           </div>
@@ -119,7 +171,6 @@ export function MobilePlaylistSheet({
 
         {/* Footer with user info */}
         <div className="border-t border-border p-4 space-y-3">
-          {/* Discogs connection */}
           {isDiscogsAuthenticated && discogsUsername && (
             <div className="flex items-center justify-between text-sm">
               <div className="flex items-center gap-2">
@@ -128,8 +179,6 @@ export function MobilePlaylistSheet({
               </div>
             </div>
           )}
-          
-          {/* User info */}
           {isUserLoggedIn && userEmail && (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <User className="w-4 h-4" />

@@ -7,16 +7,27 @@ import { Switch } from '@/components/ui/switch';
 import { useTheme } from '@/hooks/useTheme';
 import { useSettings } from '@/hooks/useSettings';
 import { useCSVCollection } from '@/hooks/useCSVCollection';
-import { Settings, Trash2, Palette, RefreshCw, Upload, Download, FileText, Zap, Music } from 'lucide-react';
+import { Settings, Trash2, Palette, RefreshCw, Upload, Download, FileText, Music, Disc3, LogIn, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import { Track } from '@/types/track';
 
 interface SettingsDialogProps {
   onClearData: () => void;
   playlistTracks?: Track[];
+  isDiscogsAuthenticated?: boolean;
+  discogsUsername?: string;
+  onConnectDiscogs?: () => void;
+  onDisconnectDiscogs?: () => void;
 }
 
-export function SettingsDialog({ onClearData, playlistTracks = [] }: SettingsDialogProps) {
+export function SettingsDialog({
+  onClearData,
+  playlistTracks = [],
+  isDiscogsAuthenticated = false,
+  discogsUsername,
+  onConnectDiscogs,
+  onDisconnectDiscogs,
+}: SettingsDialogProps) {
   const { theme, setTheme } = useTheme();
   const { settings, updateSetting } = useSettings();
   const { 
@@ -195,6 +206,37 @@ export function SettingsDialog({ onClearData, playlistTracks = [] }: SettingsDia
                 Use the CSV export to import your playlist into Spotify or Apple Music via third-party tools like Soundiiz or Tunemymusic.
               </p>
             </div>
+          </div>
+
+          <div className="border-t border-border" />
+
+          {/* Discogs Account */}
+          <div className="space-y-4">
+            <h4 className="font-medium leading-none flex items-center gap-2 text-primary">
+              <Disc3 className="w-4 h-4" /> Discogs Account
+            </h4>
+            <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 flex items-start gap-2">
+              <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+              <p className="text-xs text-muted-foreground">
+                Discogs login is experimental and may have issues. CSV import is recommended for a stable experience.
+              </p>
+            </div>
+            {isDiscogsAuthenticated && discogsUsername ? (
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-sm">
+                  <Disc3 className="w-4 h-4 text-primary" />
+                  <span className="text-foreground font-medium">{discogsUsername}</span>
+                  <span className="text-muted-foreground text-xs">connected</span>
+                </div>
+                <Button variant="outline" size="sm" onClick={onDisconnectDiscogs} className="text-xs">
+                  Disconnect
+                </Button>
+              </div>
+            ) : (
+              <Button variant="outline" className="w-full gap-2" onClick={onConnectDiscogs}>
+                <LogIn className="w-4 h-4" /> Connect Discogs Account
+              </Button>
+            )}
           </div>
 
           <div className="border-t border-border" />

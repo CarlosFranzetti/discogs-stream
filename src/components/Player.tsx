@@ -21,7 +21,6 @@ import { Timeline } from './Timeline';
 import { PlayerControls } from './PlayerControls';
 import { TrackInfo } from './TrackInfo';
 import { PlaylistSidebar } from './PlaylistSidebar';
-import { DiscogsConnect } from './DiscogsConnect';
 import { SourceFilters, SourceType } from './SourceFilters';
 import { Track } from '@/types/track';
 import { readDiscogsCache, writeDiscogsCache } from '@/data/discogsCache';
@@ -110,11 +109,11 @@ export function Player() {
     scrapeCoverArt,
     batchLoadCoverArtFromDb,
   } = useCoverArtScraper();
-  const { upsertTracks } = useTrackCache();
+  const { upsertTracks, loadTracks, applyCachedMetadata } = useTrackCache();
   const ownerKey = useMemo(() => resolveOwnerKey(credentials?.username), [credentials?.username]);
   const [discogsTracks, setDiscogsTracks] = useState<Track[]>([]);
 
-  // Helper to update a track in discogsTracks (used by cover art scraper)
+  // Helper to update a track and immediately persist to DB
   const updateDiscogsTrack = useCallback((updatedTrack: Track) => {
     setDiscogsTracks(prev => {
       const idx = prev.findIndex(t => t.id === updatedTrack.id);
@@ -123,9 +122,10 @@ export function Player() {
       newTracks[idx] = updatedTrack;
       return newTracks;
     });
-    // Also update CSV track if it exists there
     updateCSVTrack(updatedTrack);
-  }, [updateCSVTrack]);
+    // Persist YouTube ID and cover resolution immediately to DB
+    upsertTracks(ownerKey, [updatedTrack]);
+  }, [updateCSVTrack, upsertTracks, ownerKey]);
 
   // Merge CSV tracks with Discogs tracks
   useEffect(() => {
@@ -137,6 +137,23 @@ export function Player() {
       });
     }
   }, [csvAllTracks]);
+
+  // Hydrate CSV tracks from DB cache on startup (restores YouTube IDs and covers from prior session)
+  const csvHydratedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!ownerKey || csvAllTracks.length === 0) return;
+    if (csvHydratedRef.current === ownerKey) return;
+    csvHydratedRef.current = ownerKey;
+
+    loadTracks(ownerKey).then(rows => {
+      if (!rows.length) return;
+      const hydrated = applyCachedMetadata(csvAllTracks, rows);
+      setDiscogsTracks(prev => {
+        const csvIds = new Set(csvAllTracks.map(t => t.id));
+        return [...prev.filter(t => !csvIds.has(t.id)), ...hydrated];
+      });
+    });
+  }, [ownerKey, csvAllTracks, loadTracks, applyCachedMetadata]);
   
   // Tracks with background-loaded cover art and YouTube IDs
   const [verifiedTracks, setVerifiedTracks] = useState<Track[]>([]);
@@ -213,15 +230,14 @@ export function Player() {
     toggleShuffle,
   } = usePlayer(filteredTracks, persistedDislikedTracks);
 
-  // Background Verifier Hook
-  const { isVerifying, progress: verifyProgress } = useBackgroundVerifier({
+  // Background Verifier Hook — no quota guard; yt-dlp/Invidious run regardless of API quota
+  const { isVerifying: _isVerifying, progress: _verifyProgress, triggerImmediate } = useBackgroundVerifier({
     tracks: verifiedTracks,
     currentTrack: playlist[currentIndex] || null,
     isPlaying,
     searchForVideo,
     resolveMediaForTrack,
     updateTrack: updateDiscogsTrack,
-    isQuotaExceeded
   });
 
   // Like/dislike handlers that persist to database
@@ -512,22 +528,33 @@ export function Player() {
     return () => window.clearTimeout(t);
   }, [currentProvider, currentTrack?.id, currentTrack?.duration, isPlaying, skipNext]);
 
-  // Pre-fetch media candidates for next 4 tracks in the queue
+  // Pre-fetch media for next 4 tracks in the queue (covers both Discogs and CSV tracks)
   useEffect(() => {
     if (!playlist.length || currentIndex < 0) return;
 
-    const upcomingTracks = playlist
+    const upcoming = playlist
       .slice(currentIndex + 1, currentIndex + 5)
-      .filter((t) => !t.youtubeId && !t.bandcampEmbedSrc && !!t.discogsReleaseId && !prefetchedRef.current.has(t.id));
+      .filter((t) => !t.youtubeId && !t.bandcampEmbedSrc && !prefetchedRef.current.has(t.id));
 
-    if (upcomingTracks.length === 0) return;
+    if (upcoming.length === 0) return;
 
-    // Mark as being prefetched
-    upcomingTracks.forEach((t) => prefetchedRef.current.add(t.id));
+    upcoming.forEach((t) => prefetchedRef.current.add(t.id));
 
-    console.log('Pre-fetching media candidates for', upcomingTracks.length, 'upcoming tracks');
-    prefetchForTracks(upcomingTracks);
-  }, [currentIndex, playlist, prefetchForTracks]);
+    // Discogs tracks: use full media resolver (checks release videos, Bandcamp, etc.)
+    const withReleaseId = upcoming.filter(t => !!t.discogsReleaseId);
+    if (withReleaseId.length > 0) {
+      console.log('Pre-fetching media candidates for', withReleaseId.length, 'Discogs tracks');
+      prefetchForTracks(withReleaseId);
+    }
+
+    // CSV tracks without a release ID: fall through to YouTube search chain directly
+    const csvOnly = upcoming.filter(t => !t.discogsReleaseId);
+    csvOnly.forEach(t => {
+      searchForVideo(t).then(videoId => {
+        if (videoId) updateDiscogsTrack({ ...t, youtubeId: videoId, workingStatus: 'working' });
+      });
+    });
+  }, [currentIndex, playlist, prefetchForTracks, searchForVideo, updateDiscogsTrack]);
 
   const handlePlayerStateChange = (state: number) => {
     // YT.PlayerState.ENDED = 0
@@ -622,6 +649,7 @@ export function Player() {
         // Then start scraping for missing covers in the background
         toast.info('Fetching remaining cover art...');
         scrapeCoverArt(tracks, updateDiscogsTrack, true);
+        triggerImmediate();
       }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to load CSV');
@@ -649,11 +677,20 @@ export function Player() {
         // Then start scraping for missing covers in the background
         toast.info('Fetching remaining cover art...');
         scrapeCoverArt(tracks, updateDiscogsTrack, true);
+        triggerImmediate();
       }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to load CSV');
     }
   };
+
+  // Retry a non_working track on demand (from playlist click)
+  const handleRetryTrack = useCallback(async (track: Track) => {
+    const videoId = await searchForVideo(track, { force: true });
+    if (videoId) {
+      updateDiscogsTrack({ ...track, youtubeId: videoId, workingStatus: 'working' });
+    }
+  }, [searchForVideo, updateDiscogsTrack]);
 
   const handleClearCSV = () => {
     clearCSVData();
@@ -708,17 +745,13 @@ export function Player() {
           <p className="text-muted-foreground">Stream music from your Discogs collection</p>
         </div>
 
-        {/* Discogs Connection */}
-        <div className="w-full max-w-sm">
-          <DiscogsConnect
-            isAuthenticated={isAuthenticated}
-            isAuthenticating={isAuthenticating}
-            username={credentials?.username}
-            error={authError || dataError}
-            onConnect={startAuth}
-            onDisconnect={logout}
-          />
-        </div>
+        {/* Discogs connected indicator (read-only on title screen — connect/disconnect via Settings) */}
+        {isAuthenticated && credentials?.username && (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <span className="text-success text-xs">●</span>
+            <span>Connected as <strong className="text-foreground">{credentials.username}</strong></span>
+          </div>
+        )}
 
         {/* CSV Upload Section - show when not authenticated */}
         {!isAuthenticated && (
@@ -931,16 +964,6 @@ export function Player() {
                 onToggleSource={handleToggleSource}
                 trackCounts={trackCounts}
               />
-              <div className="hidden lg:block">
-                <DiscogsConnect
-                  isAuthenticated={isAuthenticated}
-                  isAuthenticating={isAuthenticating}
-                  username={credentials?.username}
-                  error={authError}
-                  onConnect={startAuth}
-                  onDisconnect={logout}
-                />
-              </div>
               <Button
                 variant="ghost"
                 size="sm"
@@ -995,12 +1018,13 @@ export function Player() {
         </div>
       </div>
 
-      {/* Playlist sidebar - narrower */}
-      <div className="hidden md:block w-64 lg:w-80 flex-shrink-0">
+      {/* Playlist sidebar */}
+      <div className="hidden md:block w-[320px] lg:w-[400px] flex-shrink-0">
         <PlaylistSidebar
           playlist={playlist}
           currentIndex={currentIndex}
           onSelectTrack={selectTrack}
+          onRetryTrack={handleRetryTrack}
         />
       </div>
     </div>

@@ -16,7 +16,7 @@ import { MobilePlaylistSheet } from './MobilePlaylistSheet';
 import { MobileTitleScreen } from './MobileTitleScreen';
 import { Track } from '@/types/track';
 import { readDiscogsCache, writeDiscogsCache } from '@/data/discogsCache';
-import { Loader2, Radio, Menu } from 'lucide-react';
+import { Loader2, Radio, Menu, ListMusic } from 'lucide-react';
 import { SourceType } from './SourceFilters';
 import { QuotaBanner } from './QuotaBanner';
 import { toast } from 'sonner';
@@ -26,6 +26,7 @@ import { useBackgroundVerifier } from '@/hooks/useBackgroundVerifier';
 import { useCoverArtScraper } from '@/hooks/useCoverArtScraper';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import { resolveOwnerKey, useTrackCache, type TrackCacheRow } from '@/hooks/useTrackCache';
+import { PlaylistSidebar } from '@/components/PlaylistSidebar';
 
 export function MobilePlayer() {
   const navigate = useNavigate();
@@ -134,6 +135,13 @@ export function MobilePlayer() {
   const [hasUserInteracted, setHasUserInteracted] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [volume, setVolume] = useState(100);
+  const [isDesktop, setIsDesktop] = useState(() => window.innerWidth >= 1024);
+
+  useEffect(() => {
+    const handler = () => setIsDesktop(window.innerWidth >= 1024);
+    window.addEventListener('resize', handler);
+    return () => window.removeEventListener('resize', handler);
+  }, []);
 
   useEffect(() => {
     verifiedTracksRef.current = verifiedTracks;
@@ -182,15 +190,14 @@ export function MobilePlayer() {
     onSkipNext: skipNext
   });
 
-  // Background Verifier Hook
-  const { isVerifying, progress: verifyProgress } = useBackgroundVerifier({
-    tracks: verifiedTracks, // Use verifiedTracks which now mirrors discogsTracks
-    currentTrack: playlist[currentIndex] || null, // Access current track from player state
+  // Background Verifier Hook — no quota guard; yt-dlp/Invidious run regardless of API quota
+  const { isVerifying, progress: verifyProgress, triggerImmediate } = useBackgroundVerifier({
+    tracks: verifiedTracks,
+    currentTrack: playlist[currentIndex] || null,
     isPlaying,
     searchForVideo,
     resolveMediaForTrack,
     updateTrack: updateDiscogsTrack,
-    isQuotaExceeded
   });
 
   // Cover art scraper hook
@@ -630,15 +637,14 @@ export function MobilePlayer() {
 
       // Load cover art from database immediately, then scrape missing ones
       if (tracks.length > 0) {
-        // First, batch load any existing cover art from database
         const dbLoadCount = await batchLoadCoverArtFromDb(tracks, updateCSVTrack);
         if (dbLoadCount > 0) {
           toast.success(`Loaded ${dbLoadCount} covers from database`);
         }
-
-        // Then start scraping for missing covers in the background
         toast.info('Fetching remaining cover art...');
         scrapeCoverArt(tracks, updateCSVTrack, true);
+        // Trigger immediate background verification for first track
+        triggerImmediate();
       }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to load CSV');
@@ -671,20 +677,27 @@ export function MobilePlayer() {
 
       // Load cover art from database immediately, then scrape missing ones
       if (tracks.length > 0) {
-        // First, batch load any existing cover art from database
         const dbLoadCount = await batchLoadCoverArtFromDb(tracks, updateCSVTrack);
         if (dbLoadCount > 0) {
           toast.success(`Loaded ${dbLoadCount} covers from database`);
         }
-
-        // Then start scraping for missing covers in the background
         toast.info('Fetching remaining cover art...');
         scrapeCoverArt(tracks, updateCSVTrack, true);
+        // Trigger immediate background verification for first track
+        triggerImmediate();
       }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to load CSV');
     }
   };
+
+  // Retry a non_working track on demand (from playlist click)
+  const handleRetryTrack = useCallback(async (track: Track) => {
+    const videoId = await searchForVideo(track, { force: true });
+    if (videoId) {
+      updateDiscogsTrack({ ...track, youtubeId: videoId, workingStatus: 'working' });
+    }
+  }, [searchForVideo, updateDiscogsTrack]);
 
   const handleClearCSV = () => {
     clearCSVData();
@@ -759,7 +772,9 @@ export function MobilePlayer() {
 
   // Main player view
   return (
-    <div className="h-screen flex flex-col bg-background overflow-hidden max-w-[480px] md:max-w-md mx-auto safe-area">
+    <div className="h-screen flex bg-background overflow-hidden">
+      {/* ── Player column (centered on desktop) ── */}
+      <div className="flex flex-col flex-1 lg:max-w-[520px] lg:mx-auto safe-area overflow-hidden min-w-0">
       {/* Header */}
       <header className="flex items-center justify-between px-3 sm:px-4 py-2 border-b border-border shrink-0">
         <div className="flex items-center gap-2">
@@ -771,20 +786,25 @@ export function MobilePlayer() {
             <span className="text-xs text-primary">Radio</span>
           </div>
         </div>
-        
-        {/* Username / Settings / Menu - no volume in header */}
+
+        {/* Username / Settings / Menu */}
         <div className="flex items-center gap-1">
           {credentials?.username && <span className="text-xs sm:text-sm text-muted-foreground mr-1 sm:mr-2 hidden sm:inline">{credentials.username}</span>}
-          <SettingsDialog 
+          <SettingsDialog
             onClearData={() => {
               clearCSVData();
               clearCache();
             }}
             playlistTracks={playlist}
+            isDiscogsAuthenticated={isAuthenticated}
+            discogsUsername={credentials?.username}
+            onConnectDiscogs={startAuth}
+            onDisconnectDiscogs={logout}
           />
+          {/* Mobile-only menu button — desktop uses the Queue button near controls */}
           <button
-            onClick={() => setSidebarOpen(true)}
-            className="p-1.5 sm:p-2 text-muted-foreground hover:text-foreground"
+            onClick={() => setSidebarOpen(prev => !prev)}
+            className="p-1.5 sm:p-2 text-muted-foreground hover:text-foreground lg:hidden"
           >
             <Menu className="w-4 h-4 sm:w-5 sm:h-5" />
           </button>
@@ -860,6 +880,17 @@ export function MobilePlayer() {
           onToggleShuffle={toggleShuffle}
           onVolumeChange={handleVolumeChange}
         />
+
+        {/* Desktop Queue toggle — sits right below transport controls, adjacent to player */}
+        <div className="hidden lg:flex justify-center mt-3 pb-2">
+          <button
+            onClick={() => setSidebarOpen(prev => !prev)}
+            className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors px-4 py-1.5 rounded-full border border-border hover:border-primary/50"
+          >
+            <ListMusic className="w-4 h-4" />
+            <span>{sidebarOpen ? 'Hide Queue' : 'Show Queue'}</span>
+          </button>
+        </div>
       </main>
 
       {/* Hidden YouTube player */}
@@ -876,9 +907,9 @@ export function MobilePlayer() {
         />
       </div>
 
-      {/* Playlist sidebar sheet */}
+      {/* Mobile playlist sheet — only visible on < lg */}
       <MobilePlaylistSheet
-        isOpen={sidebarOpen}
+        isOpen={sidebarOpen && !isDesktop}
         onClose={() => setSidebarOpen(false)}
         playlist={playlist}
         currentIndex={currentIndex}
@@ -889,7 +920,21 @@ export function MobilePlayer() {
         isUserLoggedIn={isUserLoggedIn}
         userEmail={user?.email}
         onSignOut={signOut}
+        onRetryTrack={handleRetryTrack}
       />
+      </div>{/* end player column */}
+
+      {/* Desktop sidebar panel — wider, inline, only on lg+ */}
+      {sidebarOpen && isDesktop && (
+        <div className="hidden lg:flex w-[420px] flex-shrink-0 border-l border-border">
+          <PlaylistSidebar
+            playlist={playlist}
+            currentIndex={currentIndex}
+            onSelectTrack={selectTrack}
+            onRetryTrack={handleRetryTrack}
+          />
+        </div>
+      )}
     </div>
   );
 }

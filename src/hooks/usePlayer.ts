@@ -4,7 +4,7 @@ import { mockTracks, shuffleTracks } from '@/data/mockTracks';
 
 export function usePlayer(initialTracks?: Track[], dislikedTracks?: Track[]) {
   // Track if we're using demo/mock data
-  const [isUsingMockData, setIsUsingMockData] = useState(true);
+  const [isUsingMockData, setIsUsingMockData] = useState(() => !initialTracks || initialTracks.length === 0);
   
   const [playlist, setPlaylist] = useState<Track[]>(() => {
     if (initialTracks && initialTracks.length > 0) {
