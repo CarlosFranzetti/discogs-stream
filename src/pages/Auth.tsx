@@ -125,7 +125,7 @@ export default function Auth() {
           <div className="flex justify-center">
             <Disc className="w-12 h-12 text-primary animate-spin-slow" />
           </div>
-          <h1 className="text-2xl font-bold text-foreground">Discogs Radio</h1>
+          <h1 className="text-2xl font-bold text-foreground">Discogs Stream</h1>
           <p className="text-sm text-muted-foreground">
             {mode === 'reset' 
               ? 'Enter your email to reset your password'

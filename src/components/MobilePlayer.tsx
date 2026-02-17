@@ -781,7 +781,7 @@ export function MobilePlayer() {
           </div>
           <div>
             <h1 className="text-sm font-bold text-foreground leading-tight">Discogs</h1>
-            <span className="text-xs text-primary">Radio</span>
+            <span className="text-xs text-primary">Stream</span>
           </div>
         </div>
 
@@ -817,23 +817,7 @@ export function MobilePlayer() {
             isPlaying={isPlaying}
             onClick={togglePlay}
           />
-          
-          {isSearching && (
-            <div className="absolute inset-0 flex items-center justify-center bg-black/50 rounded-full">
-              <div className="flex flex-col items-center gap-1 text-white">
-                <Loader2 className="w-6 h-6 animate-spin" />
-                <span className="text-xs">Finding...</span>
-              </div>
-            </div>
-          )}
         </div>
-
-        {/* Quota banner (demo mode) */}
-        {isQuotaExceeded && (
-          <div className="mb-3">
-            <QuotaBanner onOpenYouTube={handleOpenInYouTube} />
-          </div>
-        )}
 
         {/* Source badge */}
         {currentTrack && (
@@ -877,6 +861,31 @@ export function MobilePlayer() {
           onToggleShuffle={toggleShuffle}
           onVolumeChange={handleVolumeChange}
         />
+
+        {/* Bottom status bar — Finding... and Quota notice */}
+        {(isSearching || isQuotaExceeded) && (
+          <div className="mt-auto pt-2">
+            <div className="border-t border-border/30" />
+            <div className="flex flex-col gap-1.5 pt-2 pb-1 px-1">
+              {isSearching && (
+                <p className="text-[11px] text-muted-foreground/50 text-center tracking-wide">
+                  Finding stream...
+                </p>
+              )}
+              {isQuotaExceeded && (
+                <div className="flex items-center justify-between text-amber-500/80 dark:text-amber-400/80">
+                  <span className="text-xs">Demo mode — YouTube quota exceeded</span>
+                  <button
+                    onClick={handleOpenInYouTube}
+                    className="text-xs font-medium text-amber-500 dark:text-amber-400 hover:underline flex items-center gap-1 shrink-0 ml-3"
+                  >
+                    Open in YouTube ↗
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
       </main>
 

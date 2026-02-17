@@ -23,9 +23,9 @@ export function usePlayer(initialTracks?: Track[], dislikedTracks?: Track[]) {
   
   const [playlist, setPlaylist] = useState<Track[]>(() => {
     if (initialTracks && initialTracks.length > 0) {
-      return shuffleTracks(initialTracks);
+      return sortSequential(initialTracks);
     }
-    return shuffleTracks(mockTracks);
+    return sortSequential(mockTracks);
   });
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -35,7 +35,7 @@ export function usePlayer(initialTracks?: Track[], dislikedTracks?: Track[]) {
   const playerRef = useRef<YT.Player | null>(null);
   const intervalRef = useRef<number | null>(null);
 
-  const [isShuffle, setIsShuffle] = useState(true);
+  const [isShuffle, setIsShuffle] = useState(false);
 
   const currentTrack = playlist[currentIndex];
 

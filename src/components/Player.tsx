@@ -741,7 +741,7 @@ export function Player() {
         </div>
 
         <div className="text-center space-y-2">
-          <h1 className="text-4xl font-display font-bold text-foreground">Discogs Radio</h1>
+          <h1 className="text-4xl font-display font-bold text-foreground">Discogs Stream</h1>
           <p className="text-muted-foreground">Stream music from your Discogs collection</p>
         </div>
 

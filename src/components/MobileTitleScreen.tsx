@@ -132,7 +132,7 @@ export function MobileTitleScreen({
           Discogs
         </h1>
         <h2 className="text-4xl font-sans font-bold text-primary tracking-tight glow-text">
-          Radio
+          Stream
         </h2>
         <p className="text-muted-foreground mt-3">
           Stream music from your Discogs collection
