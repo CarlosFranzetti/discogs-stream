@@ -2,6 +2,21 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { Track } from '@/types/track';
 import { mockTracks, shuffleTracks } from '@/data/mockTracks';
 
+function sortSequential(tracks: Track[]): Track[] {
+  return [...tracks].sort((a, b) => {
+    const artistCmp = a.artist.localeCompare(b.artist);
+    if (artistCmp !== 0) return artistCmp;
+    const albumCmp = (a.album || '').localeCompare(b.album || '');
+    if (albumCmp !== 0) return albumCmp;
+    const yearCmp = (a.year || 0) - (b.year || 0);
+    if (yearCmp !== 0) return yearCmp;
+    const posA = a.discogsTrackPosition || '';
+    const posB = b.discogsTrackPosition || '';
+    if (posA && posB) return posA.localeCompare(posB, undefined, { numeric: true });
+    return a.title.localeCompare(b.title);
+  });
+}
+
 export function usePlayer(initialTracks?: Track[], dislikedTracks?: Track[]) {
   // Track if we're using demo/mock data
   const [isUsingMockData, setIsUsingMockData] = useState(() => !initialTracks || initialTracks.length === 0);
@@ -48,13 +63,13 @@ export function usePlayer(initialTracks?: Track[], dislikedTracks?: Track[]) {
         console.log(`[Playlist] Replacing ${prev.length} mock tracks with ${filtered.length} real tracks`);
         setIsUsingMockData(false);
         setCurrentIndex(0); // Reset to start of new playlist
-        return isShuffle ? shuffleTracks(filtered) : filtered;
+        return isShuffle ? shuffleTracks(filtered) : sortSequential(filtered);
       }
 
       if (prev.length === 0) {
         console.log(`[Playlist] Initializing playlist with ${filtered.length} tracks`);
         setIsUsingMockData(false);
-        return isShuffle ? shuffleTracks(filtered) : filtered;
+        return isShuffle ? shuffleTracks(filtered) : sortSequential(filtered);
       }
 
       // Update existing tracks with new metadata (e.g. coverUrl, youtubeId)
@@ -95,8 +110,8 @@ export function usePlayer(initialTracks?: Track[], dislikedTracks?: Track[]) {
       if (isShuffle) {
         return [...cleanedPlaylist, ...shuffleTracks(newTracks)];
       } else {
-        // In sequential mode, return full filtered list (maintains Discogs order)
-        return filtered;
+        // In sequential mode, return full filtered list in artist/album order
+        return sortSequential(filtered);
       }
     });
   }, [initialTracks, dislikedTracks, isShuffle, filterDisliked, isUsingMockData]);
@@ -161,10 +176,9 @@ export function usePlayer(initialTracks?: Track[], dislikedTracks?: Track[]) {
            return shuffled;
         });
       } else {
-        // Turning OFF shuffle
-        // Revert to original order (filtered initialTracks)
+        // Turning OFF shuffle — restore artist/album sequential order
         if (initialTracks) {
-           setPlaylist(filterDisliked(initialTracks));
+           setPlaylist(sortSequential(filterDisliked(initialTracks)));
         }
       }
       return nextState;

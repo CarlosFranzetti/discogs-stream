@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Track } from '@/types/track';
-import { Music, Heart, ShoppingCart, Disc3, User, Ban, Loader2 } from 'lucide-react';
+import { Music, Heart, ShoppingCart, Disc3, User, Ban, Loader2, Search } from 'lucide-react';
 
 interface MobilePlaylistSheetProps {
   isOpen: boolean;
@@ -35,6 +35,14 @@ export function MobilePlaylistSheet({
 }: MobilePlaylistSheetProps) {
   const [retryingId, setRetryingId] = useState<string | null>(null);
   const retriedOnce = useRef<Set<string>>(new Set());
+  const [searchQuery, setSearchQuery] = useState('');
+
+  const displayedPlaylist = searchQuery.trim()
+    ? playlist.filter(t =>
+        t.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        t.artist.toLowerCase().includes(searchQuery.toLowerCase())
+      )
+    : playlist;
 
   // When a retrying track gets resolved, clear the retryingId
   useEffect(() => {
@@ -95,9 +103,24 @@ export function MobilePlaylistSheet({
           <p className="text-xs text-muted-foreground">{playlist.length} tracks in queue</p>
         </SheetHeader>
 
+        {/* Search bar */}
+        <div className="px-4 py-2 border-b border-border">
+          <div className="flex items-center gap-2 bg-muted/50 rounded-lg px-3 py-1.5">
+            <Search className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+            <input
+              type="text"
+              placeholder="Search tracks..."
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              className="bg-transparent text-sm flex-1 outline-none text-foreground placeholder:text-muted-foreground"
+            />
+          </div>
+        </div>
+
         <ScrollArea className="flex-1">
           <div className="py-2">
-            {playlist.map((track, index) => {
+            {displayedPlaylist.map((track) => {
+              const index = playlist.indexOf(track);
               const isNonWorking = track.workingStatus === 'non_working';
               const isPending = !track.youtubeId && track.workingStatus !== 'working' && !isNonWorking;
               const isRetrying = retryingId === track.id;

@@ -139,60 +139,55 @@ export function MobileTitleScreen({
         </p>
       </div>
 
-      {/* Connection card */}
-      <div className="w-full bg-card/50 backdrop-blur-sm rounded-2xl border border-border p-5 mb-6">
-        {isDiscogsAuthenticating ? (
-          /* Loading state */
-          <div className="flex flex-col items-center py-4">
-            <Loader2 className="w-8 h-8 text-primary animate-spin mb-3" />
-            <p className="text-muted-foreground">Connecting to Discogs...</p>
-          </div>
-        ) : isDiscogsAuthenticated && discogsUsername ? (
-          /* Connected state */
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
-                  <Disc3 className="w-5 h-5 text-primary" />
-                </div>
-                <div>
-                  <p className="font-medium text-foreground">{discogsUsername}</p>
-                  <p className="text-xs text-muted-foreground">Connected to Discogs</p>
-                </div>
-              </div>
-              <button onClick={onDisconnectDiscogs} className="text-muted-foreground hover:text-foreground p-2">
-                <LogOut className="w-5 h-5" />
-              </button>
+      {/* Connection card — only shown when authenticating or already connected */}
+      {(isDiscogsAuthenticating || (isDiscogsAuthenticated && discogsUsername)) && (
+        <div className="w-full bg-card/50 backdrop-blur-sm rounded-2xl border border-border p-5 mb-6">
+          {isDiscogsAuthenticating ? (
+            /* Loading state */
+            <div className="flex flex-col items-center py-4">
+              <Loader2 className="w-8 h-8 text-primary animate-spin mb-3" />
+              <p className="text-muted-foreground">Connecting to Discogs...</p>
             </div>
+          ) : (
+            /* Connected state */
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+                    <Disc3 className="w-5 h-5 text-primary" />
+                  </div>
+                  <div>
+                    <p className="font-medium text-foreground">{discogsUsername}</p>
+                    <p className="text-xs text-muted-foreground">Connected to Discogs</p>
+                  </div>
+                </div>
+                <button onClick={onDisconnectDiscogs} className="text-muted-foreground hover:text-foreground p-2">
+                  <LogOut className="w-5 h-5" />
+                </button>
+              </div>
 
-            {/* Source toggles */}
-            <div className="pt-2">
-              <p className="text-sm text-muted-foreground mb-3 text-center">Select sources to include:</p>
-              <div className="space-y-2">
-                <SourceToggle
-                  label="Collection"
-                  icon={<Disc3 className="w-5 h-5" />}
-                  isActive={activeSources.includes('collection')}
-                  onToggle={() => onToggleSource('collection')}
-                />
-                <SourceToggle
-                  label="Wantlist"
-                  icon={<Heart className="w-5 h-5" />}
-                  isActive={activeSources.includes('wantlist')}
-                  onToggle={() => onToggleSource('wantlist')}
-                />
+              {/* Source toggles */}
+              <div className="pt-2">
+                <p className="text-sm text-muted-foreground mb-3 text-center">Select sources to include:</p>
+                <div className="space-y-2">
+                  <SourceToggle
+                    label="Collection"
+                    icon={<Disc3 className="w-5 h-5" />}
+                    isActive={activeSources.includes('collection')}
+                    onToggle={() => onToggleSource('collection')}
+                  />
+                  <SourceToggle
+                    label="Wantlist"
+                    icon={<Heart className="w-5 h-5" />}
+                    isActive={activeSources.includes('wantlist')}
+                    onToggle={() => onToggleSource('wantlist')}
+                  />
+                </div>
               </div>
             </div>
-          </div>
-        ) : (
-          /* Not connected state */
-          <div className="space-y-4">
-            <p className="text-sm text-muted-foreground text-center py-4">
-              Connect via CSV files below or sign in
-            </p>
-          </div>
-        )}
-      </div>
+          )}
+        </div>
+      )}
 
       {/* CSV Upload Section */}
       {!isDiscogsAuthenticated && (

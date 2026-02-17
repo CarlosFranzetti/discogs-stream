@@ -16,7 +16,7 @@ import { MobilePlaylistSheet } from './MobilePlaylistSheet';
 import { MobileTitleScreen } from './MobileTitleScreen';
 import { Track } from '@/types/track';
 import { readDiscogsCache, writeDiscogsCache } from '@/data/discogsCache';
-import { Loader2, Radio, Menu, ListMusic } from 'lucide-react';
+import { Loader2, Radio, Menu } from 'lucide-react';
 import { SourceType } from './SourceFilters';
 import { QuotaBanner } from './QuotaBanner';
 import { toast } from 'sonner';
@@ -26,7 +26,6 @@ import { useBackgroundVerifier } from '@/hooks/useBackgroundVerifier';
 import { useCoverArtScraper } from '@/hooks/useCoverArtScraper';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import { resolveOwnerKey, useTrackCache, type TrackCacheRow } from '@/hooks/useTrackCache';
-import { PlaylistSidebar } from '@/components/PlaylistSidebar';
 
 export function MobilePlayer() {
   const navigate = useNavigate();
@@ -135,13 +134,6 @@ export function MobilePlayer() {
   const [hasUserInteracted, setHasUserInteracted] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [volume, setVolume] = useState(100);
-  const [isDesktop, setIsDesktop] = useState(() => window.innerWidth >= 1024);
-
-  useEffect(() => {
-    const handler = () => setIsDesktop(window.innerWidth >= 1024);
-    window.addEventListener('resize', handler);
-    return () => window.removeEventListener('resize', handler);
-  }, []);
 
   useEffect(() => {
     verifiedTracksRef.current = verifiedTracks;
@@ -600,6 +592,13 @@ export function MobilePlayer() {
   }, [currentTrack, getSearchUrl]);
 
   const handleStartListening = useCallback(() => {
+    // If audio is already preloaded for a different track, sync to what's actually playing
+    if (currentVideoId) {
+      const playingIdx = playlist.findIndex(t => t.youtubeId === currentVideoId);
+      if (playingIdx !== -1 && playingIdx !== currentIndex) {
+        selectTrack(playingIdx);
+      }
+    }
     setHasUserInteracted(true);
     // Start playback as soon as we have at least one track
     if (currentTrack?.youtubeId || currentVideoId) {
@@ -608,7 +607,7 @@ export function MobilePlayer() {
         setIsPlaying(true);
       }, 100);
     }
-  }, [playerRef, currentTrack, currentVideoId, setIsPlaying]);
+  }, [playerRef, currentTrack, currentVideoId, playlist, currentIndex, selectTrack, setIsPlaying]);
 
   // CSV upload handlers with toast notifications and cover art scraping
   const handleCollectionCSVUpload = async (file: File) => {
@@ -772,9 +771,8 @@ export function MobilePlayer() {
 
   // Main player view
   return (
-    <div className="h-screen flex bg-background overflow-hidden">
-      {/* ── Player column (centered on desktop) ── */}
-      <div className="flex flex-col flex-1 lg:max-w-[520px] lg:mx-auto safe-area overflow-hidden min-w-0">
+    <div className="flex flex-col h-screen bg-background overflow-hidden">
+      <div className="flex flex-col flex-1 safe-area overflow-hidden min-w-0">
       {/* Header */}
       <header className="flex items-center justify-between px-3 sm:px-4 py-2 border-b border-border shrink-0">
         <div className="flex items-center gap-2">
@@ -801,10 +799,9 @@ export function MobilePlayer() {
             onConnectDiscogs={startAuth}
             onDisconnectDiscogs={logout}
           />
-          {/* Mobile-only menu button — desktop uses the Queue button near controls */}
           <button
             onClick={() => setSidebarOpen(prev => !prev)}
-            className="p-1.5 sm:p-2 text-muted-foreground hover:text-foreground lg:hidden"
+            className="p-1.5 sm:p-2 text-muted-foreground hover:text-foreground"
           >
             <Menu className="w-4 h-4 sm:w-5 sm:h-5" />
           </button>
@@ -881,16 +878,6 @@ export function MobilePlayer() {
           onVolumeChange={handleVolumeChange}
         />
 
-        {/* Desktop Queue toggle — sits right below transport controls, adjacent to player */}
-        <div className="hidden lg:flex justify-center mt-3 pb-2">
-          <button
-            onClick={() => setSidebarOpen(prev => !prev)}
-            className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors px-4 py-1.5 rounded-full border border-border hover:border-primary/50"
-          >
-            <ListMusic className="w-4 h-4" />
-            <span>{sidebarOpen ? 'Hide Queue' : 'Show Queue'}</span>
-          </button>
-        </div>
       </main>
 
       {/* Hidden YouTube player */}
@@ -907,9 +894,9 @@ export function MobilePlayer() {
         />
       </div>
 
-      {/* Mobile playlist sheet — only visible on < lg */}
+      {/* Playlist sheet */}
       <MobilePlaylistSheet
-        isOpen={sidebarOpen && !isDesktop}
+        isOpen={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
         playlist={playlist}
         currentIndex={currentIndex}
@@ -923,18 +910,6 @@ export function MobilePlayer() {
         onRetryTrack={handleRetryTrack}
       />
       </div>{/* end player column */}
-
-      {/* Desktop sidebar panel — wider, inline, only on lg+ */}
-      {sidebarOpen && isDesktop && (
-        <div className="hidden lg:flex w-[420px] flex-shrink-0 border-l border-border">
-          <PlaylistSidebar
-            playlist={playlist}
-            currentIndex={currentIndex}
-            onSelectTrack={selectTrack}
-            onRetryTrack={handleRetryTrack}
-          />
-        </div>
-      )}
     </div>
   );
 }
