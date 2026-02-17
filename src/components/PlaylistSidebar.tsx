@@ -81,12 +81,9 @@ export function PlaylistSidebar({ playlist, currentIndex, onSelectTrack, onRetry
           <Disc className="w-5 h-5 text-primary" />
           <h3 className="font-semibold text-foreground">Up Next</h3>
         </div>
-        <p className="text-sm text-muted-foreground mt-1">
-          {playlist.length} tracks in queue
-        </p>
       </div>
 
-      {/* Search bar */}
+      {/* Search + sort chips */}
       <div className="px-4 py-2 border-b border-border">
         <div className="flex items-center gap-2 bg-muted/50 rounded-lg px-3 py-1.5">
           <Search className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
@@ -97,6 +94,21 @@ export function PlaylistSidebar({ playlist, currentIndex, onSelectTrack, onRetry
             onChange={e => setSearchQuery(e.target.value)}
             className="bg-transparent text-sm flex-1 outline-none text-foreground placeholder:text-muted-foreground"
           />
+        </div>
+        <div className="flex gap-1.5 mt-2">
+          {(['artist', 'title', 'genre'] as const).map((key) => (
+            <button
+              key={key}
+              onClick={() => setSortBy(prev => prev === key ? 'none' : key)}
+              className={`px-2 py-0.5 rounded-full text-[10px] border transition-colors ${
+                sortBy === key
+                  ? 'bg-primary/15 text-primary border-primary'
+                  : 'bg-muted text-muted-foreground border-transparent'
+              }`}
+            >
+              {key.charAt(0).toUpperCase() + key.slice(1)}
+            </button>
+          ))}
         </div>
       </div>
 
@@ -186,21 +198,9 @@ export function PlaylistSidebar({ playlist, currentIndex, onSelectTrack, onRetry
         </div>
       </ScrollArea>
 
-      {/* Sort chips */}
-      <div className="border-t border-border p-3 flex gap-2">
-        {(['artist', 'title', 'genre'] as const).map((key) => (
-          <button
-            key={key}
-            onClick={() => setSortBy(prev => prev === key ? 'none' : key)}
-            className={`px-2.5 py-1 rounded-full text-xs border transition-colors ${
-              sortBy === key
-                ? 'bg-primary/15 text-primary border-primary'
-                : 'bg-muted text-muted-foreground border-transparent'
-            }`}
-          >
-            {key.charAt(0).toUpperCase() + key.slice(1)}
-          </button>
-        ))}
+      {/* Footer: track count */}
+      <div className="border-t border-border p-3">
+        <p className="text-sm text-muted-foreground">{playlist.length} tracks in queue</p>
       </div>
     </div>
   );

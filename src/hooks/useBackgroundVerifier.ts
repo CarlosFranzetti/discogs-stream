@@ -137,8 +137,13 @@ export function useBackgroundVerifier({
         // 2. Fallback to YouTube search chain: yt-dlp → Invidious → Official API
         // No quota guard here — the edge function handles quota internally and
         // always tries yt-dlp and Invidious first regardless of API quota status.
+        // Force=true for non_working tracks so the in-memory unavailableCache is bypassed.
         if (!videoId) {
-          videoId = await searchForVideo(track);
+          const isNonWorking = track.workingStatus === 'non_working';
+          videoId = await searchForVideo(track, {
+            force: isNonWorking,
+            maxResults: isNonWorking ? 8 : 5,
+          });
         }
 
         if (videoId) {

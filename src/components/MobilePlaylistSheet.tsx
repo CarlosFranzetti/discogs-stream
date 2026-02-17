@@ -114,10 +114,9 @@ export function MobilePlaylistSheet({
             <Music className="w-4 h-4 text-primary" />
             Up Next
           </SheetTitle>
-          <p className="text-xs text-muted-foreground">{playlist.length} tracks in queue</p>
         </SheetHeader>
 
-        {/* Search bar */}
+        {/* Search + sort chips */}
         <div className="px-4 py-2 border-b border-border">
           <div className="flex items-center gap-2 bg-muted/50 rounded-lg px-3 py-1.5">
             <Search className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
@@ -128,6 +127,21 @@ export function MobilePlaylistSheet({
               onChange={e => setSearchQuery(e.target.value)}
               className="bg-transparent text-sm flex-1 outline-none text-foreground placeholder:text-muted-foreground"
             />
+          </div>
+          <div className="flex gap-1.5 mt-2">
+            {(['artist', 'title', 'genre'] as const).map((key) => (
+              <button
+                key={key}
+                onClick={() => setSortBy(prev => prev === key ? 'none' : key)}
+                className={`px-2 py-0.5 rounded-full text-[10px] border transition-colors capitalize ${
+                  sortBy === key
+                    ? 'bg-primary/15 text-primary border-primary'
+                    : 'bg-muted text-muted-foreground border-transparent'
+                }`}
+              >
+                {key.charAt(0).toUpperCase() + key.slice(1)}
+              </button>
+            ))}
           </div>
         </div>
 
@@ -211,24 +225,9 @@ export function MobilePlaylistSheet({
           </div>
         </ScrollArea>
 
-        {/* Footer with sort chips + user info */}
+        {/* Footer with track count + user info */}
         <div className="border-t border-border p-4 space-y-3">
-          {/* Sort chips */}
-          <div className="flex gap-2">
-            {(['artist', 'title', 'genre'] as const).map((key) => (
-              <button
-                key={key}
-                onClick={() => setSortBy(prev => prev === key ? 'none' : key)}
-                className={`px-2.5 py-1 rounded-full text-xs border transition-colors capitalize ${
-                  sortBy === key
-                    ? 'bg-primary/15 text-primary border-primary'
-                    : 'bg-muted text-muted-foreground border-transparent'
-                }`}
-              >
-                {key.charAt(0).toUpperCase() + key.slice(1)}
-              </button>
-            ))}
-          </div>
+          <p className="text-xs text-muted-foreground">{playlist.length} tracks in queue</p>
 
           {isDiscogsAuthenticated && discogsUsername && (
             <div className="flex items-center justify-between text-sm">

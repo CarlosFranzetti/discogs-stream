@@ -38,6 +38,49 @@ function isQuotaExceededPayload(errorText: string): boolean {
   }
 }
 
+function normalizeStr(s: string): string {
+  return (s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+function scoreResult(videoTitle: string, channelTitle: string, artist: string, title: string): number {
+  const v = normalizeStr(videoTitle);
+  const c = normalizeStr(channelTitle);
+  const a = normalizeStr(artist);
+  const t = normalizeStr(title);
+  if (!v || !t) return 0;
+  let score = 0;
+  if (v.includes(t)) score += 10;
+  if (a && v.includes(a)) score += 4;
+  if (a && c.includes(a)) score += 3; // channel name matches artist → likely official
+  const tTokens = t.split(' ').filter(w => w.length > 2);
+  for (const tok of tTokens) {
+    if (v.includes(tok)) score += 1;
+  }
+  return score;
+}
+
+/** Generate query variants from artist + title, most-specific first. */
+function buildQueryVariants(artist: string, title: string): string[] {
+  // Strip common clutter from title
+  const clean = title
+    .replace(/\s*\([^)]*\)/g, '')   // remove (...)
+    .replace(/\s*\[[^\]]*\]/g, '')  // remove [...]
+    .replace(/\s+feat\.?\s+.*/i, '') // remove feat. onwards
+    .replace(/\s+ft\.?\s+.*/i, '')
+    .replace(/\s+featuring\s+.*/i, '')
+    .trim();
+
+  const base = clean && clean !== title ? clean : title;
+  const variants = [
+    `${artist} ${title}`,           // exact
+    `${artist} ${base}`,            // cleaned title
+    `${artist} - ${base}`,          // dash-separated (common for official uploads)
+    `${artist} ${base} official`,   // official audio
+  ];
+  // deduplicate while preserving order
+  return [...new Map(variants.map(v => [v.toLowerCase(), v])).values()];
+}
+
 async function searchWithYtDlp(query: string, maxResults: number): Promise<VideoRow[]> {
   try {
     const limit = Math.min(Math.max(maxResults, 1), 10);
@@ -218,7 +261,7 @@ serve(async (req) => {
   }
 
   try {
-    const { query, maxResults = 1, pageToken, artist, title, refresh = false } = await req.json();
+    const { query, maxResults = 5, pageToken, artist, title, refresh = false } = await req.json();
 
     if (!query) {
       return new Response(JSON.stringify({ error: 'Query is required' }), {
@@ -227,6 +270,7 @@ serve(async (req) => {
       });
     }
 
+    const limit = Number(maxResults) || 5;
     let existingVideoId: string | null = null;
 
     // 0) Permanent DB cache by artist/title.
@@ -255,7 +299,7 @@ serve(async (req) => {
       }
     }
 
-    // 1) Query cache.
+    // 1) Query cache — only use cached results that are non-empty.
     if (!refresh) {
       const { data: cachedData } = await supabase
         .from('search_cache')
@@ -267,46 +311,68 @@ serve(async (req) => {
         .maybeSingle();
 
       if (cachedData) {
-        return new Response(JSON.stringify(cachedData.results), {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
+        const cached = cachedData.results as { videos?: VideoRow[] };
+        // Only serve from cache if it actually has results — empty caches are stale
+        if (cached?.videos && cached.videos.length > 0) {
+          return new Response(JSON.stringify(cachedData.results), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
       }
     }
+
+    // Build query variants to try in order (most specific first)
+    const queryVariants = (artist && title)
+      ? buildQueryVariants(String(artist), String(title))
+      : [String(query)];
 
     let videos: VideoRow[] = [];
     let nextPageToken: string | null = null;
     let source: 'yt-dlp' | 'invidious' | 'youtube-api' = 'yt-dlp';
 
-    // 2) Primary: yt-dlp search.
-    videos = await searchWithYtDlp(String(query), Number(maxResults) || 1);
+    // 2) Primary: yt-dlp search — try each query variant until results found.
+    for (const q of queryVariants) {
+      videos = await searchWithYtDlp(q, limit);
+      if (videos.length > 0) break;
+    }
 
-    // 3) Fallback: Invidious search.
+    // 3) Fallback: Invidious search — try each query variant.
     if (videos.length === 0) {
       source = 'invidious';
-      videos = await searchWithInvidious(String(query), Number(maxResults) || 1);
+      for (const q of queryVariants) {
+        videos = await searchWithInvidious(q, limit);
+        if (videos.length > 0) break;
+      }
     }
 
-    // 4) Last resort: Official API.
+    // 4) Last resort: Official API — try primary query then clean variant.
     if (videos.length === 0) {
       source = 'youtube-api';
-      const fallback = await searchWithOfficialApi(String(query), Number(maxResults) || 1, pageToken);
-      if (fallback.error === 'quota_exceeded') {
-        return new Response(JSON.stringify({ error: 'quota_exceeded', videos: [] }), {
-          status: 200,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
+      for (const q of queryVariants.slice(0, 2)) {
+        const fallback = await searchWithOfficialApi(q, limit, pageToken);
+        if (fallback.error === 'quota_exceeded') {
+          return new Response(JSON.stringify({ error: 'quota_exceeded', videos: [] }), {
+            status: 200,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+        if (!fallback.error && fallback.videos.length > 0) {
+          videos = fallback.videos;
+          nextPageToken = fallback.nextPageToken;
+          break;
+        }
       }
-      if (fallback.error) {
-        return new Response(JSON.stringify({ error: fallback.error, videos: [] }), {
-          status: 502,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
-      }
-      videos = fallback.videos;
-      nextPageToken = fallback.nextPageToken;
     }
 
-    // Keep prior ID as secondary fallback candidate when refreshing.
+    // 5) Score and rank results by relevance to artist + title.
+    if (videos.length > 1 && artist && title) {
+      videos = videos
+        .map(v => ({ ...v, _score: scoreResult(v.title || '', v.channelTitle || '', String(artist), String(title)) }))
+        .sort((a, b) => (b as VideoRow & { _score: number })._score - (a as VideoRow & { _score: number })._score)
+        .map(({ _score: _s, ...v }) => v as VideoRow);
+    }
+
+    // 6) Keep prior ID as secondary fallback candidate when refreshing.
     if (existingVideoId && !videos.some((v) => v.videoId === existingVideoId)) {
       videos = [
         ...videos,
@@ -321,6 +387,7 @@ serve(async (req) => {
 
     const resultData = { videos, nextPageToken, source };
 
+    // Persist best match to permanent store (only when results found).
     if (artist && title && videos.length > 0) {
       const topVideo = videos[0];
       try {
@@ -337,15 +404,18 @@ serve(async (req) => {
       }
     }
 
-    try {
-      await supabase.from('search_cache').insert({
-        query,
-        page_token: pageToken || null,
-        results: resultData,
-        expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-      });
-    } catch (cacheError) {
-      console.error('Failed to cache results:', cacheError);
+    // Cache the result — only when non-empty (empty results mean transient failure, not absence).
+    if (videos.length > 0) {
+      try {
+        await supabase.from('search_cache').insert({
+          query,
+          page_token: pageToken || null,
+          results: resultData,
+          expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+        });
+      } catch (cacheError) {
+        console.error('Failed to cache results:', cacheError);
+      }
     }
 
     return new Response(JSON.stringify(resultData), {

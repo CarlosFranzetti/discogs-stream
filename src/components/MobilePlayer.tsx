@@ -789,7 +789,7 @@ export function MobilePlayer() {
           </div>
           <div className="flex flex-col items-start leading-none">
             <span className="text-[17px] font-black text-foreground tracking-[-0.03em] leading-none">Discogs</span>
-            <span className="text-[9px] font-semibold text-foreground/20 ml-1.5 mt-0.5 tracking-[0.2em] leading-none uppercase">Stream</span>
+            <span className="text-[9px] font-semibold text-foreground/20 ml-4 mt-0.5 tracking-[0.2em] leading-none uppercase">Stream</span>
           </div>
         </button>
 
@@ -805,7 +805,6 @@ export function MobilePlayer() {
 
         {/* Settings + Menu */}
         <div className="flex items-center gap-1 shrink-0">
-          {credentials?.username && <span className="text-xs sm:text-sm text-muted-foreground mr-1 sm:mr-2 hidden sm:inline">{credentials.username}</span>}
           <SettingsDialog
             onClearData={() => {
               clearCSVData();
@@ -816,6 +815,8 @@ export function MobilePlayer() {
             discogsUsername={credentials?.username}
             onConnectDiscogs={startAuth}
             onDisconnectDiscogs={logout}
+            onCollectionCSVUpload={handleCollectionCSVUpload}
+            onWantlistCSVUpload={handleWantlistCSVUpload}
           />
           <button
             onClick={() => setSidebarOpen(prev => !prev)}
@@ -853,11 +854,11 @@ export function MobilePlayer() {
       )}
 
       {/* Main content */}
-      <main className="flex-1 flex flex-col px-3 sm:px-4 py-2 overflow-hidden min-h-0">
-        {/* Album cover — clamp grows with svh, max 250px gives more presence on desktop */}
+      <main className="flex-1 flex flex-col px-3 sm:px-4 pt-8 pb-2 overflow-hidden min-h-0">
+        {/* Album cover — 18% larger; clamp grows with svh */}
         <div
-          className="relative mx-auto mb-5 shrink-0"
-          style={{ width: 'clamp(180px, 28svh, 250px)', height: 'clamp(180px, 28svh, 250px)' }}
+          className="relative mx-auto mb-7 shrink-0"
+          style={{ width: 'clamp(212px, 33svh, 295px)', height: 'clamp(212px, 33svh, 295px)' }}
         >
           <MobileAlbumCover
             track={currentTrack}
@@ -869,8 +870,8 @@ export function MobilePlayer() {
         {/* Track info */}
         <MobileTrackInfo track={currentTrack} />
 
-        {/* Divider */}
-        <div className="border-t border-border/50 my-1.5 shrink-0" />
+        {/* Divider above waveform */}
+        <div className="border-t border-border/50 my-2 shrink-0" />
 
         {/* Timeline */}
         <MobileTimeline
@@ -880,8 +881,8 @@ export function MobilePlayer() {
           trackId={currentTrack?.id}
         />
 
-        {/* Divider + deliberate space before transport */}
-        <div className="border-t border-border/50 mt-1.5 mb-2.5 shrink-0" />
+        {/* Divider + deliberate space before transport — transport sits ~8% higher */}
+        <div className="border-t border-border/50 mt-1.5 mb-1 shrink-0" />
 
         {/* Transport controls */}
         <MobileTransportControls
@@ -906,12 +907,12 @@ export function MobilePlayer() {
           {/* div line */}
           <div className="border-t border-border/30" />
           <div className="px-1 pt-1.5 pb-1">
-            {/* Quota row — text-[11px] (same as Finding stream), /70 (15% less bright than /80) */}
+            {/* Quota row — positive fallback indicator */}
             <div className={`flex items-center gap-2 justify-center transition-opacity duration-200 ${isQuotaExceeded ? 'opacity-100' : 'opacity-0 pointer-events-none select-none'}`}>
-              <span className="text-[11px] text-amber-500/70 dark:text-amber-400/70">YouTube quota exceeded</span>
+              <span className="text-[11px] text-muted-foreground/60">Streaming via Invidious</span>
               <button
                 onClick={handleOpenInYouTube}
-                className="text-[11px] text-amber-500/70 dark:text-amber-400/70 hover:underline shrink-0"
+                className="text-[11px] text-muted-foreground/50 hover:text-muted-foreground hover:underline shrink-0"
               >
                 Open in YouTube ↗
               </button>
@@ -920,8 +921,8 @@ export function MobilePlayer() {
             <div className="mt-1" />
             {/* div */}
             <div className="border-t border-border/20" />
-            {/* less space than before */}
-            <div className="mt-0.5" />
+            {/* space after div */}
+            <div className="mt-2" />
             {/* Finding stream — always rendered to prevent layout shift */}
             <p className={`text-[11px] text-center tracking-wide transition-opacity duration-200 ${isSearching ? 'opacity-100 text-muted-foreground/50' : 'opacity-0 select-none'}`}>
               Finding stream...

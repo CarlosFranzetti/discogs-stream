@@ -17,6 +17,8 @@ interface SettingsDialogProps {
   discogsUsername?: string;
   onConnectDiscogs?: () => void;
   onDisconnectDiscogs?: () => void;
+  onCollectionCSVUpload?: (file: File) => Promise<void>;
+  onWantlistCSVUpload?: (file: File) => Promise<void>;
 }
 
 export function SettingsDialog({
@@ -26,12 +28,14 @@ export function SettingsDialog({
   discogsUsername,
   onConnectDiscogs,
   onDisconnectDiscogs,
+  onCollectionCSVUpload,
+  onWantlistCSVUpload,
 }: SettingsDialogProps) {
   const { theme, setTheme } = useTheme();
   const { settings, updateSetting } = useSettings();
-  const { 
-    loadCollectionCSV, 
-    loadWantlistCSV, 
+  const {
+    loadCollectionCSV,
+    loadWantlistCSV,
     isLoading: isCSVLoading,
     collection,
     wantlist
@@ -82,8 +86,12 @@ export function SettingsDialog({
     const file = e.target.files?.[0];
     if (file) {
       try {
-        const tracks = await loadCollectionCSV(file);
-        toast.success(`Loaded ${tracks.length} collection items`);
+        if (onCollectionCSVUpload) {
+          await onCollectionCSVUpload(file);
+        } else {
+          const tracks = await loadCollectionCSV(file);
+          toast.success(`Loaded ${tracks.length} collection items`);
+        }
       } catch (err) {
         toast.error('Failed to load CSV');
       }
@@ -95,8 +103,12 @@ export function SettingsDialog({
     const file = e.target.files?.[0];
     if (file) {
       try {
-        const tracks = await loadWantlistCSV(file);
-        toast.success(`Loaded ${tracks.length} wantlist items`);
+        if (onWantlistCSVUpload) {
+          await onWantlistCSVUpload(file);
+        } else {
+          const tracks = await loadWantlistCSV(file);
+          toast.success(`Loaded ${tracks.length} wantlist items`);
+        }
       } catch (err) {
         toast.error('Failed to load CSV');
       }

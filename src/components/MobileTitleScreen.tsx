@@ -108,22 +108,32 @@ export function MobileTitleScreen({
   };
 
   return (
-    <div className="h-screen flex flex-col bg-background overflow-hidden safe-area max-w-md mx-auto w-full px-6 animate-fade-in">
+    <div className="h-screen flex flex-col bg-background overflow-hidden safe-area max-w-md mx-auto w-full px-6 animate-fade-in relative">
+
+      {/* ── Full-screen background disc — fills viewport height ── */}
+      <div
+        className="absolute rounded-full pointer-events-none"
+        style={{
+          width: '100svh',
+          height: '100svh',
+          top: '50%',
+          left: '50%',
+          transform: 'translate(-50%, -50%)',
+        }}
+      >
+        <div className="absolute inset-0 rounded-full bg-primary/3 animate-[pulse_3s_ease-in-out_infinite]" />
+        <div className="absolute inset-[8%] rounded-full border border-primary/10 animate-[pulse_3s_ease-in-out_0.3s_infinite]" />
+        <div className="absolute inset-[16%] rounded-full border border-primary/15 animate-[pulse_3s_ease-in-out_0.6s_infinite]" />
+        <div className="absolute inset-[24%] rounded-full border border-primary/20 animate-[pulse_3s_ease-in-out_0.9s_infinite]" />
+        <div className="absolute inset-0 flex items-center justify-center">
+          <Radio className="w-1/3 h-1/3 text-primary/15" strokeWidth={0.4} />
+        </div>
+      </div>
 
       {/* ── Branding ── */}
-      <div className="flex flex-col items-center pt-8 pb-2">
-        {/* Icon — large, hover-rotates */}
-        <div className="relative mb-5 group">
-          <div className="absolute inset-0 w-24 h-24 rounded-full bg-primary/5 animate-[pulse_2s_ease-in-out_infinite]" />
-          <div className="absolute inset-2 w-20 h-20 rounded-full border border-primary/20 animate-[pulse_2s_ease-in-out_0.3s_infinite]" />
-          <div className="absolute inset-4 w-16 h-16 rounded-full border border-primary/30 animate-[pulse_2s_ease-in-out_0.6s_infinite]" />
-          <div className="relative w-24 h-24 rounded-full bg-gradient-to-b from-card to-background border border-border flex items-center justify-center transition-transform duration-700 group-hover:rotate-180">
-            <Radio className="w-9 h-9 text-primary" strokeWidth={1.5} />
-          </div>
-        </div>
-
+      <div className="flex flex-col items-center pt-14 pb-2 relative">
         {/* Title — Discogs + Stream with slight overlap */}
-        <div className="text-center">
+        <div className="text-center mb-3">
           <h1 className="text-4xl font-sans font-bold text-foreground tracking-tight leading-none">
             Discogs
           </h1>
@@ -131,13 +141,13 @@ export function MobileTitleScreen({
             Stream
           </h2>
         </div>
-        <p className="text-muted-foreground mt-3 text-sm">
+        <p className="text-muted-foreground text-sm">
           Stream your Discogs collection
         </p>
       </div>
 
       {/* ── Main content — flows from top, spacer takes leftover space at bottom ── */}
-      <div className="flex flex-col gap-3 mt-3">
+      <div className="flex flex-col gap-3 mt-8 relative">
 
         {/* Discogs auth card — only when authenticating or connected */}
         {(isDiscogsAuthenticating || (isDiscogsAuthenticated && discogsUsername)) && (

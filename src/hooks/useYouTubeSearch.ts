@@ -132,9 +132,12 @@ export function useYouTubeSearch() {
             return videoId;
           }
 
-          // Cache as unavailable
-          unavailableCache.add(cacheKey);
-          videoCache.set(cacheKey, '');
+          // Only cache as permanently unavailable when the DB confirmed it (source: 'db')
+          // — not when search providers returned empty (could be transient failure).
+          if (data?.source === 'db') {
+            unavailableCache.add(cacheKey);
+            videoCache.set(cacheKey, '');
+          }
           return '';
         } catch (error) {
           console.error('YouTube search error:', error);
