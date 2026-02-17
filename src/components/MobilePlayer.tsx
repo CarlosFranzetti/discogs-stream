@@ -184,7 +184,8 @@ export function MobilePlayer() {
   useKeyboardShortcuts({
     onTogglePlay: togglePlay,
     onSkipPrev: skipPrev,
-    onSkipNext: skipNext
+    onSkipNext: skipNext,
+    onTogglePlaylist: () => setSidebarOpen(prev => !prev),
   });
 
   // Background Verifier Hook — no quota guard; yt-dlp/Invidious run regardless of API quota

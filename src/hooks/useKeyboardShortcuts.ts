@@ -4,12 +4,14 @@ interface KeyboardShortcutsProps {
   onTogglePlay: () => void;
   onSkipPrev: () => void;
   onSkipNext: () => void;
+  onTogglePlaylist?: () => void;
 }
 
 export function useKeyboardShortcuts({
   onTogglePlay,
   onSkipPrev,
   onSkipNext,
+  onTogglePlaylist,
 }: KeyboardShortcutsProps) {
   useEffect(() => {
     const handleKeyPress = (e: KeyboardEvent) => {
@@ -37,9 +39,16 @@ export function useKeyboardShortcuts({
         onSkipNext();
         return;
       }
+
+      // P: toggle playlist
+      if (e.key === 'p' || e.key === 'P') {
+        e.preventDefault();
+        onTogglePlaylist?.();
+        return;
+      }
     };
 
     window.addEventListener('keydown', handleKeyPress);
     return () => window.removeEventListener('keydown', handleKeyPress);
-  }, [onTogglePlay, onSkipPrev, onSkipNext]);
+  }, [onTogglePlay, onSkipPrev, onSkipNext, onTogglePlaylist]);
 }
