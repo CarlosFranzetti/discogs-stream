@@ -57,7 +57,8 @@ interface MobileTitleScreenProps {
   csvWantlistCount?: number;
   onCollectionCSVUpload?: (file: File) => Promise<void>;
   onWantlistCSVUpload?: (file: File) => Promise<void>;
-  onClearCSV?: () => void;
+  onClearCollection?: () => void;
+  onClearWantlist?: () => void;
   csvError?: string | null;
   isCSVLoading?: boolean;
 }
@@ -84,7 +85,8 @@ export function MobileTitleScreen({
   csvWantlistCount = 0,
   onCollectionCSVUpload,
   onWantlistCSVUpload,
-  onClearCSV,
+  onClearCollection,
+  onClearWantlist,
   csvError,
   isCSVLoading = false,
 }: MobileTitleScreenProps) {
@@ -201,18 +203,27 @@ export function MobileTitleScreen({
                 <p className="text-xs text-muted-foreground mt-0.5">No account needed</p>
               </div>
 
-              {hasCSVData && (
+              {csvCollectionCount > 0 && (
                 <div className="flex items-center justify-between px-3 py-2 bg-primary/5 rounded-lg">
                   <div className="flex items-center gap-2">
                     <FileText className="w-4 h-4 text-primary" />
-                    <span className="text-sm text-foreground">
-                      {csvCollectionCount > 0 && `${csvCollectionCount} collection`}
-                      {csvCollectionCount > 0 && csvWantlistCount > 0 && ', '}
-                      {csvWantlistCount > 0 && `${csvWantlistCount} wantlist`}
-                    </span>
+                    <span className="text-sm text-foreground">{csvCollectionCount} collection</span>
                   </div>
-                  {onClearCSV && (
-                    <button onClick={onClearCSV} disabled={isCSVLoading} className="text-muted-foreground hover:text-foreground">
+                  {onClearCollection && (
+                    <button onClick={onClearCollection} disabled={isCSVLoading} className="text-muted-foreground hover:text-primary">
+                      <X className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+              )}
+              {csvWantlistCount > 0 && (
+                <div className="flex items-center justify-between px-3 py-2 bg-primary/5 rounded-lg">
+                  <div className="flex items-center gap-2">
+                    <FileText className="w-4 h-4 text-primary" />
+                    <span className="text-sm text-foreground">{csvWantlistCount} wantlist</span>
+                  </div>
+                  {onClearWantlist && (
+                    <button onClick={onClearWantlist} disabled={isCSVLoading} className="text-muted-foreground hover:text-primary">
                       <X className="w-4 h-4" />
                     </button>
                   )}
@@ -229,7 +240,7 @@ export function MobileTitleScreen({
               <div className="space-y-2">
                 <Button
                   variant="outline"
-                  className="w-full gap-2 border-border hover:border-primary hover:bg-primary/5"
+                  className="w-full gap-2 border-border hover:border-primary hover:bg-primary/5 hover:text-primary"
                   onClick={() => collectionInputRef.current?.click()}
                   disabled={isCSVLoading}
                 >
@@ -238,7 +249,7 @@ export function MobileTitleScreen({
                 </Button>
                 <Button
                   variant="outline"
-                  className="w-full gap-2 border-border hover:border-primary hover:bg-primary/5"
+                  className="w-full gap-2 border-border hover:border-primary hover:bg-primary/5 hover:text-primary"
                   onClick={() => wantlistInputRef.current?.click()}
                   disabled={isCSVLoading}
                 >

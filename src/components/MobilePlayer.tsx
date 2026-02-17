@@ -75,6 +75,8 @@ export function MobilePlayer() {
     loadCollectionCSV,
     loadWantlistCSV,
     clearAll: clearCSVData,
+    clearCollection,
+    clearWantlist,
     updateTrack: updateCSVTrack,
   } = useCSVCollection();
   const [discogsTracks, setDiscogsTracks] = useState<Track[]>([]);
@@ -703,7 +705,18 @@ export function MobilePlayer() {
 
   const handleClearCSV = () => {
     clearCSVData();
+    setDiscogsTracks([]);
     toast.success('CSV data cleared');
+  };
+
+  const handleClearCollection = () => {
+    clearCollection();
+    setDiscogsTracks(prev => prev.filter(t => t.source !== 'collection'));
+  };
+
+  const handleClearWantlist = () => {
+    clearWantlist();
+    setDiscogsTracks(prev => prev.filter(t => t.source !== 'wantlist'));
   };
 
   // Loading states
@@ -759,12 +772,13 @@ export function MobilePlayer() {
           trackCount={verifiedTracks.length}
           isVerifying={isVerifying}
           verifyProgress={verifyProgress}
-          hasCSVData={hasCSVData}
-          csvCollectionCount={csvCollection.length}
-          csvWantlistCount={csvWantlist.length}
+          hasCSVData={verifiedTracks.length > 0}
+          csvCollectionCount={verifiedTracks.filter(t => t.source === 'collection').length}
+          csvWantlistCount={verifiedTracks.filter(t => t.source === 'wantlist').length}
           onCollectionCSVUpload={handleCollectionCSVUpload}
           onWantlistCSVUpload={handleWantlistCSVUpload}
-          onClearCSV={handleClearCSV}
+          onClearCollection={handleClearCollection}
+          onClearWantlist={handleClearWantlist}
           csvError={csvError}
           isCSVLoading={isCSVLoading}
         />
@@ -809,6 +823,7 @@ export function MobilePlayer() {
             onClearData={() => {
               clearCSVData();
               clearCache();
+              setDiscogsTracks([]);
             }}
             playlistTracks={playlist}
             isDiscogsAuthenticated={isAuthenticated}
