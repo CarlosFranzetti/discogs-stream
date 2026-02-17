@@ -2,7 +2,7 @@ node_modules
 dist
 .git
 .DS_Store
-supabase
+/supabase
 src/test
 src/**/__tests__
 **/*.test.*
