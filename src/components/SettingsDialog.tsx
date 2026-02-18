@@ -225,10 +225,10 @@ export function SettingsDialog({
                   {collection.length > 0 && (
                     <button
                       type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onClearCollection ? onClearCollection() : clearCollection();
-                      }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onClearCollection ? onClearCollection() : clearCollection();
+                        }}
                       className="p-1 -mr-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
                       aria-label="Unload collection"
                     >
@@ -250,10 +250,10 @@ export function SettingsDialog({
                   {wantlist.length > 0 && (
                     <button
                       type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onClearWantlist ? onClearWantlist() : clearWantlist();
-                      }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onClearWantlist ? onClearWantlist() : clearWantlist();
+                        }}
                       className="p-1 -mr-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
                       aria-label="Unload wantlist"
                     >

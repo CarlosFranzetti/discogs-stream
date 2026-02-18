@@ -49,7 +49,12 @@ export function usePlayer(initialTracks?: Track[], dislikedTracks?: Track[]) {
   // Update playlist when initialTracks changes
   useEffect(() => {
     if (!initialTracks || initialTracks.length === 0) {
-      console.log('[usePlayer] No initial tracks yet, keeping current playlist');
+      console.log('[usePlayer] No initial tracks — clearing playlist');
+      setPlaylist([]);
+      setCurrentIndex(0);
+      setCurrentTime(0);
+      setIsPlaying(false);
+      setIsUsingMockData(false);
       return;
     }
 
@@ -275,6 +280,7 @@ export function usePlayer(initialTracks?: Track[], dislikedTracks?: Track[]) {
   }, []);
 
   const selectTrack = useCallback((index: number) => {
+    if (index < 0 || index >= playlist.length) return;
     setCurrentTime(0);
     setCurrentIndex(index);
     // Force playback to start immediately
@@ -284,7 +290,7 @@ export function usePlayer(initialTracks?: Track[], dislikedTracks?: Track[]) {
       }
       setIsPlaying(true);
     }, 100);
-  }, []);
+  }, [playlist.length]);
 
   const toggleVideo = useCallback(() => {
     setShowVideo((prev) => !prev);

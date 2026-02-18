@@ -138,6 +138,18 @@ export function MobilePlayer() {
     return discogsTracks.filter(track => activeSources.includes(track.source));
   }, [discogsTracks, activeSources]);
 
+  // When both CSV sources are cleared, ensure UI returns to title screen and playback stops
+  useEffect(() => {
+    if (discogsTracks.length === 0) {
+      setHasUserInteracted(false);
+      setIsPlaying(false);
+      setCurrentVideoId('');
+      setCurrentTime(0);
+      setPlaylist([]);
+      setCurrentIndex(0);
+    }
+  }, [discogsTracks.length, setCurrentIndex, setCurrentTime, setIsPlaying, setPlaylist]);
+
   const handleToggleSource = useCallback((source: SourceType) => {
     setActiveSources(prev => {
       if (prev.includes(source)) {
@@ -722,11 +734,13 @@ export function MobilePlayer() {
   const handleClearCollection = () => {
     clearCollection();
     setDiscogsTracks(prev => prev.filter(t => t.source !== 'collection'));
+    setHasUserInteracted(prev => prev && false);
   };
 
   const handleClearWantlist = () => {
     clearWantlist();
     setDiscogsTracks(prev => prev.filter(t => t.source !== 'wantlist'));
+    setHasUserInteracted(prev => prev && false);
   };
 
   // Loading states
