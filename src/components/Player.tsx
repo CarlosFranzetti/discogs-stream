@@ -257,7 +257,8 @@ export function Player() {
   useKeyboardShortcuts({
     onTogglePlay: togglePlay,
     onSkipPrev: skipPrev,
-    onSkipNext: skipNext
+    onSkipNext: skipNext,
+    onToggleShuffle: toggleShuffle,
   });
 
   // Show toast notification when quota is first exceeded
@@ -745,7 +746,7 @@ export function Player() {
           <p className="text-muted-foreground">Stream music from your Discogs collection</p>
         </div>
 
-        {/* Discogs connected indicator (read-only on title screen — connect/disconnect via Settings) */}
+        {/* Discogs connected indicator (read-only on title screen — connect/disconnect via Options) */}
         {isAuthenticated && credentials?.username && (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <span className="text-success text-xs">●</span>
@@ -878,6 +879,23 @@ export function Player() {
         <Button 
           size="lg" 
           onClick={() => {
+            if (playlist.length > 0) {
+              const playableIndices = playlist
+                .map((t, idx) => ({ t, idx }))
+                .filter(({ t }) => t.youtubeId || t.bandcampEmbedSrc)
+                .map(({ idx }) => idx);
+              const candidates = playableIndices.length > 0 ? playableIndices : playlist.map((_, idx) => idx);
+              const start = Math.floor(Math.random() * candidates.length);
+              let chosen = candidates[start];
+              for (let i = 0; i < candidates.length; i++) {
+                const idx = candidates[(start + i) % candidates.length];
+                const track = playlist[idx];
+                if (track.youtubeId || track.bandcampEmbedSrc) { chosen = idx; break; }
+              }
+              setCurrentIndex(chosen);
+              setCurrentTime(0);
+              setIsPlaying(true);
+            }
             setHasUserInteracted(true);
             // Start playback immediately via the preloaded player
             setTimeout(() => {

@@ -5,6 +5,8 @@ interface KeyboardShortcutsProps {
   onSkipPrev: () => void;
   onSkipNext: () => void;
   onTogglePlaylist?: () => void;
+  onToggleShuffle?: () => void;
+  onOpenOptions?: () => void;
 }
 
 export function useKeyboardShortcuts({
@@ -12,6 +14,8 @@ export function useKeyboardShortcuts({
   onSkipPrev,
   onSkipNext,
   onTogglePlaylist,
+  onToggleShuffle,
+  onOpenOptions,
 }: KeyboardShortcutsProps) {
   useEffect(() => {
     const handleKeyPress = (e: KeyboardEvent) => {
@@ -46,9 +50,23 @@ export function useKeyboardShortcuts({
         onTogglePlaylist?.();
         return;
       }
+
+      // S: toggle shuffle
+      if (e.key === 's' || e.key === 'S') {
+        e.preventDefault();
+        onToggleShuffle?.();
+        return;
+      }
+
+      // O: open options/settings
+      if (e.key === 'o' || e.key === 'O') {
+        e.preventDefault();
+        onOpenOptions?.();
+        return;
+      }
     };
 
     window.addEventListener('keydown', handleKeyPress);
     return () => window.removeEventListener('keydown', handleKeyPress);
-  }, [onTogglePlay, onSkipPrev, onSkipNext, onTogglePlaylist]);
+  }, [onTogglePlay, onSkipPrev, onSkipNext, onTogglePlaylist, onToggleShuffle, onOpenOptions]);
 }
