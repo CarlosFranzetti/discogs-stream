@@ -201,6 +201,8 @@ export function MobilePlayer() {
     onSkipPrev: skipPrev,
     onSkipNext: skipNext,
     onTogglePlaylist: () => setSidebarOpen(prev => !prev),
+    onToggleShuffle: toggleShuffle,
+    onToggleOptions: () => setIsOptionsOpen(prev => !prev),
   });
 
   // Background Verifier Hook — no quota guard; yt-dlp/Invidious run regardless of API quota
@@ -347,7 +349,7 @@ export function MobilePlayer() {
              playerRef.current.playVideo();
            }
         }
-      }, 500);
+      }, 200);
       return () => clearTimeout(timeoutId);
     }
   }, [currentVideoId, isPlaying]);
@@ -1017,6 +1019,8 @@ export function MobilePlayer() {
         isUserLoggedIn={isUserLoggedIn}
         userEmail={user?.email}
         onSignOut={signOut}
+        activeSources={activeSources}
+        onToggleSource={handleToggleSource}
       />
       </div>{/* end player column */}
     </div>

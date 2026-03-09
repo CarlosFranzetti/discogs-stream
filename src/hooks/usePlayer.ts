@@ -266,8 +266,15 @@ export function usePlayer(initialTracks?: Track[], dislikedTracks?: Track[]) {
   }, [playlist.length]);
 
   const seekTo = useCallback((time: number) => {
-    playerRef.current?.seekTo(time, true);
-    setCurrentTime(time);
+    if (playerRef.current) {
+      playerRef.current.seekTo(time, true);
+      setCurrentTime(time);
+      // Resume playback after seek (works even during buffering state)
+      setTimeout(() => {
+        playerRef.current?.playVideo();
+        setIsPlaying(true);
+      }, 150);
+    }
   }, []);
 
   const skipForward = useCallback((seconds: number = 5) => {

@@ -5,6 +5,8 @@ interface KeyboardShortcutsProps {
   onSkipPrev: () => void;
   onSkipNext: () => void;
   onTogglePlaylist?: () => void;
+  onToggleShuffle?: () => void;
+  onToggleOptions?: () => void;
 }
 
 export function useKeyboardShortcuts({
@@ -12,43 +14,50 @@ export function useKeyboardShortcuts({
   onSkipPrev,
   onSkipNext,
   onTogglePlaylist,
+  onToggleShuffle,
+  onToggleOptions,
 }: KeyboardShortcutsProps) {
   useEffect(() => {
     const handleKeyPress = (e: KeyboardEvent) => {
-      // Don't trigger if typing in input
+      // Don't trigger if typing in input/textarea
       const target = e.target as HTMLElement;
       if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
 
-      // Space: play/pause
-      if (e.key === ' ' || e.code === 'Space') {
-        e.preventDefault();
-        onTogglePlay();
-        return;
-      }
-
-      // Comma (< when shifted): previous
-      if (e.key === ',' || e.key === '<' || e.code === 'Comma') {
-        e.preventDefault();
-        onSkipPrev();
-        return;
-      }
-
-      // Period (> when shifted): next
-      if (e.key === '.' || e.key === '>' || e.code === 'Period') {
-        e.preventDefault();
-        onSkipNext();
-        return;
-      }
-
-      // P: toggle playlist
-      if (e.key === 'p' || e.key === 'P') {
-        e.preventDefault();
-        onTogglePlaylist?.();
-        return;
+      switch (e.key) {
+        case ' ':
+        case 'Space':
+          e.preventDefault();
+          onTogglePlay();
+          break;
+        case ',':
+        case '<':
+          e.preventDefault();
+          onSkipPrev();
+          break;
+        case '.':
+        case '>':
+          e.preventDefault();
+          onSkipNext();
+          break;
+        case 'p':
+        case 'P':
+          e.preventDefault();
+          onTogglePlaylist?.();
+          break;
+        case 's':
+        case 'S':
+          e.preventDefault();
+          onToggleShuffle?.();
+          break;
+        case 'o':
+        case 'O':
+          e.preventDefault();
+          onToggleOptions?.();
+          break;
       }
     };
 
     window.addEventListener('keydown', handleKeyPress);
     return () => window.removeEventListener('keydown', handleKeyPress);
-  }, [onTogglePlay, onSkipPrev, onSkipNext, onTogglePlaylist]);
+  }, [onTogglePlay, onSkipPrev, onSkipNext, onTogglePlaylist, onToggleShuffle, onToggleOptions]);
 }

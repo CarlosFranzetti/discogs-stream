@@ -5,6 +5,8 @@ import { Track } from '@/types/track';
 import { Music, Heart, ShoppingCart, Disc3, User, Ban, Search } from 'lucide-react';
 import { useSettings } from '@/hooks/useSettings';
 
+type SourceType = 'collection' | 'wantlist';
+
 interface MobilePlaylistSheetProps {
   isOpen: boolean;
   onClose: () => void;
@@ -17,6 +19,8 @@ interface MobilePlaylistSheetProps {
   isUserLoggedIn: boolean;
   userEmail?: string;
   onSignOut: () => void;
+  activeSources?: SourceType[];
+  onToggleSource?: (source: SourceType) => void;
 }
 
 export function MobilePlaylistSheet({
@@ -31,12 +35,19 @@ export function MobilePlaylistSheet({
   isUserLoggedIn,
   userEmail,
   onSignOut: _onSignOut,
+  activeSources,
+  onToggleSource,
 }: MobilePlaylistSheetProps) {
   const retryingId = null;
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<'none' | 'artist' | 'title' | 'genre'>('none');
   const { settings } = useSettings();
   const isTight = settings.playlistSize === 'tight';
+
+  // Determine which sources are present in the playlist
+  const hasCollection = playlist.some(t => t.source === 'collection');
+  const hasWantlist = playlist.some(t => t.source === 'wantlist');
+  const showSourceFilter = (hasCollection && hasWantlist) && activeSources !== undefined;
 
   const displayedPlaylist = searchQuery.trim()
     ? playlist.filter(t =>
@@ -93,7 +104,7 @@ export function MobilePlaylistSheet({
               className="bg-transparent text-sm flex-1 outline-none text-foreground placeholder:text-muted-foreground"
             />
           </div>
-          <div className="flex gap-1.5 mt-2">
+          <div className="flex gap-1.5 mt-2 flex-wrap">
             {(['artist', 'title', 'genre'] as const).map((key) => (
               <button
                 key={key}
@@ -107,6 +118,28 @@ export function MobilePlaylistSheet({
                 {key.charAt(0).toUpperCase() + key.slice(1)}
               </button>
             ))}
+            {/* Source filter toggles */}
+            {showSourceFilter && (
+              <>
+                <div className="w-px bg-border mx-0.5 self-stretch" />
+                {(['collection', 'wantlist'] as const).map((src) => {
+                  const active = activeSources!.includes(src);
+                  return (
+                    <button
+                      key={src}
+                      onClick={() => onToggleSource?.(src)}
+                      className={`px-2 py-0.5 rounded-full text-[10px] border transition-colors flex items-center gap-1 ${
+                        active
+                          ? 'bg-primary/15 text-primary border-primary'
+                          : 'bg-muted text-muted-foreground/50 border-transparent line-through'
+                      }`}
+                    >
+                      {src === 'collection' ? '◎' : '♡'} {src.charAt(0).toUpperCase() + src.slice(1)}
+                    </button>
+                  );
+                })}
+              </>
+            )}
           </div>
         </div>
 
