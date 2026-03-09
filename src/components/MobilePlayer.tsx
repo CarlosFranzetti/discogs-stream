@@ -765,7 +765,7 @@ export function MobilePlayer() {
     return (
       <>
         {/* Hidden YouTube player for preload */}
-        <div className="absolute opacity-0 pointer-events-none" style={{ width: 1, height: 1, overflow: 'hidden' }}>
+        <div className="fixed opacity-0 pointer-events-none" style={{ width: '320px', height: '180px', bottom: '-300px', right: 0 }}>
           <YouTubePlayer
             videoId={currentVideoId || currentTrack?.youtubeId || ''}
             searchQuery={!currentVideoId && !currentTrack?.youtubeId && currentTrack ? `${currentTrack.artist} ${currentTrack.title}` : undefined}
@@ -979,7 +979,7 @@ export function MobilePlayer() {
       </main>
 
       {/* Hidden YouTube player */}
-      <div className="absolute opacity-0 pointer-events-none" style={{ width: 1, height: 1, overflow: 'hidden' }}>
+      <div className="fixed opacity-0 pointer-events-none" style={{ width: '320px', height: '180px', bottom: '-300px', right: 0 }}>
         <YouTubePlayer
           videoId={currentVideoId || currentTrack?.youtubeId || ''}
           searchQuery={!currentVideoId && !currentTrack?.youtubeId && currentTrack ? `${currentTrack.artist} ${currentTrack.title}` : undefined}
