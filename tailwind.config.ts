@@ -101,6 +101,12 @@ export default {
           "0%, 100%": { boxShadow: "0 0 20px var(--pulse-color)" },
           "50%": { boxShadow: "0 0 60px var(--pulse-color)" },
         },
+        "rainbow-pulse": {
+          "0%, 100%": { boxShadow: "0 0 40px hsl(190 90% 50% / 0.5)" },
+          "25%": { boxShadow: "0 0 50px hsl(280 80% 60% / 0.5)" },
+          "50%": { boxShadow: "0 0 40px hsl(25 100% 55% / 0.5)" },
+          "75%": { boxShadow: "0 0 50px hsl(52 100% 55% / 0.5)" },
+        },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
@@ -108,6 +114,7 @@ export default {
         "spin-slow": "spin-slow 8s linear infinite",
         "pulse-glow": "pulse-glow 2s ease-in-out infinite",
         "pulse-slow": "pulse-slow 20s ease-in-out infinite",
+        "rainbow-pulse": "rainbow-pulse 6s ease-in-out infinite",
       },
       boxShadow: {
         vinyl: "0 20px 60px -15px hsl(220 15% 0% / 0.6)",

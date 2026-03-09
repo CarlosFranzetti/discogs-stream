@@ -26,6 +26,7 @@ export interface TrackCacheRow {
   youtube1: string | null;
   youtube2: string | null;
   working_status: WorkingStatus;
+  duration: number | null;
 }
 
 function getOrCreateCsvOwnerKey(): string {
@@ -87,6 +88,7 @@ export function useTrackCache() {
         youtube1: videos[0] || null,
         youtube2: videos[1] || null,
         working_status: inferWorkingStatus(track),
+        duration: track.duration && track.duration !== 240 ? track.duration : null,
       };
     });
 
@@ -133,7 +135,15 @@ export function useTrackCache() {
         youtubeId: track.youtubeId || row.youtube1 || '',
         youtubeCandidates: youtubeCandidates.length > 0 ? youtubeCandidates : track.youtubeCandidates,
         workingStatus: row.working_status || track.workingStatus,
+        duration: row.duration && row.duration > 0 ? row.duration : track.duration,
       };
+    });
+  }, []);
+
+  const deleteTracks = useCallback(async (ownerKey: string) => {
+    if (!ownerKey) return;
+    await supabase.functions.invoke('track-cache', {
+      body: { action: 'delete', owner_key: ownerKey },
     });
   }, []);
 
@@ -141,5 +151,6 @@ export function useTrackCache() {
     upsertTracks,
     loadTracks,
     applyCachedMetadata,
+    deleteTracks,
   };
 }

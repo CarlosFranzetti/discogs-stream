@@ -27,8 +27,10 @@ export function MobileAlbumCover({ track, isPlaying, onClick }: MobileAlbumCover
     >
       {/* Outer glow ring - theme aware */}
       <div className={`absolute -inset-3 rounded-full transition-all duration-500 ${
-        isPlaying && settings.pulseEnabled 
-          ? 'bg-gradient-to-r from-primary/30 via-transparent to-primary/30 animate-pulse-slow' 
+        isPlaying && settings.pulseEnabled
+          ? settings.rainbowPulse
+            ? 'animate-rainbow-pulse'
+            : 'bg-gradient-to-r from-primary/30 via-transparent to-primary/30 animate-pulse-slow'
           : ''
       }`} />
       <div className={`absolute -inset-1 rounded-full transition-all duration-300 ${isPlaying ? 'ring-2 ring-primary/40' : 'ring-1 ring-border'}`} />

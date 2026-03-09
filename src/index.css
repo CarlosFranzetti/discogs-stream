@@ -99,23 +99,42 @@
     --sidebar-primary: 280 80% 60%;
   }
 
-  /* Theme: Vintage (Green/Amber) */
-  .theme-vintage {
-    --background: 140 15% 8%;
-    --foreground: 60 20% 92%;
-    --card: 140 12% 12%;
-    --popover: 140 12% 10%;
-    --primary: 142 70% 45%; /* Green */
-    --primary-foreground: 140 15% 8%;
-    --secondary: 60 10% 18%;
-    --muted: 140 8% 16%;
-    --accent: 35 90% 55%; /* Amber */
-    --border: 140 10% 20%;
-    --input: 140 10% 18%;
-    --ring: 142 70% 45%;
-    --pulse-color: hsl(142 70% 45% / 0.4);
-    --sidebar-background: 140 12% 10%;
-    --sidebar-primary: 142 70% 45%;
+  /* Theme: Neon Orange */
+  .theme-neon-orange {
+    --background: 20 15% 7%;
+    --foreground: 30 20% 92%;
+    --card: 20 12% 11%;
+    --popover: 20 12% 9%;
+    --primary: 25 100% 55%;
+    --primary-foreground: 20 15% 7%;
+    --secondary: 20 10% 18%;
+    --muted: 20 8% 16%;
+    --accent: 40 100% 60%;
+    --border: 20 10% 20%;
+    --input: 20 10% 18%;
+    --ring: 25 100% 55%;
+    --pulse-color: hsl(25 100% 55% / 0.4);
+    --sidebar-background: 20 12% 9%;
+    --sidebar-primary: 25 100% 55%;
+  }
+
+  /* Theme: Neon Yellow */
+  .theme-neon-yellow {
+    --background: 45 12% 7%;
+    --foreground: 50 20% 92%;
+    --card: 45 10% 11%;
+    --popover: 45 10% 9%;
+    --primary: 52 100% 55%;
+    --primary-foreground: 45 12% 7%;
+    --secondary: 45 8% 18%;
+    --muted: 45 6% 16%;
+    --accent: 35 100% 58%;
+    --border: 45 8% 20%;
+    --input: 45 8% 18%;
+    --ring: 52 100% 55%;
+    --pulse-color: hsl(52 100% 55% / 0.4);
+    --sidebar-background: 45 10% 9%;
+    --sidebar-primary: 52 100% 55%;
   }
 }
 

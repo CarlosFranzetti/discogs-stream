@@ -129,7 +129,8 @@ export function SettingsDialog({
   const THEMES = [
     { value: 'dark', label: 'Dark' },
     { value: 'theme-midnight', label: 'Midnight' },
-    { value: 'theme-vintage', label: 'Vintage' },
+    { value: 'theme-neon-orange', label: 'Orange' },
+    { value: 'theme-neon-yellow', label: 'Yellow' },
   ] as const;
 
   return (
@@ -156,9 +157,20 @@ export function SettingsDialog({
             <div className="flex items-center justify-between">
               <Label className="text-xs text-foreground/80">Pulse animation</Label>
               <Switch
-                id="pulse-mode"
                 checked={settings.pulseEnabled}
                 onCheckedChange={(val) => updateSetting('pulseEnabled', val)}
+              />
+            </div>
+
+            <div className="flex items-center justify-between">
+              <div>
+                <Label className="text-xs text-foreground/80">Rainbow pulse</Label>
+                <p className="text-[10px] text-muted-foreground/60 leading-tight">Cycles cyan → purple → orange → yellow</p>
+              </div>
+              <Switch
+                checked={settings.rainbowPulse}
+                disabled={!settings.pulseEnabled}
+                onCheckedChange={(val) => updateSetting('rainbowPulse', val)}
               />
             </div>
 
