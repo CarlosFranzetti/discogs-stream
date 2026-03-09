@@ -135,6 +135,7 @@ export function MobilePlayer() {
   const [activeSources, setActiveSources] = useState<SourceType[]>(['collection', 'wantlist']);
   const [hasUserInteracted, setHasUserInteracted] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [isOptionsOpen, setIsOptionsOpen] = useState(false);
   const [volume, setVolume] = useState(100);
   const [showReloadConfirm, setShowReloadConfirm] = useState(false);
 
@@ -163,6 +164,7 @@ export function MobilePlayer() {
     currentIndex,
     isPlaying,
     currentTime,
+    playerDuration,
     playerRef,
     togglePlay,
     skipNext,
@@ -179,6 +181,18 @@ export function MobilePlayer() {
     isShuffle,
     toggleShuffle,
   } = usePlayer(filteredTracks, persistedDislikedTracks);
+
+  // When all CSV data is cleared, stop playback and return to title screen
+  useEffect(() => {
+    if (discogsTracks.length === 0) {
+      setHasUserInteracted(false);
+      setIsPlaying(false);
+      setCurrentVideoId('');
+      setCurrentTime(0);
+      setPlaylist([]);
+      setCurrentIndex(0);
+    }
+  }, [discogsTracks.length, setCurrentIndex, setCurrentTime, setIsPlaying, setPlaylist]);
 
   // Keyboard shortcuts
   useKeyboardShortcuts({
@@ -200,7 +214,7 @@ export function MobilePlayer() {
 
   // Cover art scraper hook
   const { scrapeCoverArt, batchLoadCoverArtFromDb } = useCoverArtScraper();
-  const { upsertTracks, loadTracks, applyCachedMetadata } = useTrackCache();
+  const { upsertTracks, loadTracks, applyCachedMetadata, deleteTracks } = useTrackCache();
   const ownerKey = useMemo(() => resolveOwnerKey(credentials?.username), [credentials?.username]);
   const cachedRowsRef = useRef<TrackCacheRow[]>([]);
   const syncTimerRef = useRef<number | null>(null);
@@ -222,7 +236,7 @@ export function MobilePlayer() {
               year: row.year || 0,
               genre: row.genre || 'Unknown',
               label: row.label || 'Unknown',
-              duration: 240,
+              duration: row.duration && row.duration > 0 ? row.duration : 240,
               coverUrl: row.cover1 || '/placeholder.svg',
               coverUrls: [row.cover1, row.cover2, row.cover3, row.cover4].filter(Boolean) as string[],
               youtubeId: row.youtube1 || '',
@@ -291,6 +305,13 @@ export function MobilePlayer() {
       return () => clearTimeout(timeoutId);
     }
   }, [currentVideoId, isPlaying]);
+
+  // Persist real duration from YouTube player back to track metadata
+  useEffect(() => {
+    if (playerDuration > 0 && currentTrack && currentTrack.duration === 240) {
+      applyTrackPatch(currentTrack.id, { duration: Math.round(playerDuration) });
+    }
+  }, [playerDuration, currentTrack, applyTrackPatch]);
 
   // Like/dislike handlers
   const handleLikeTrack = useCallback(() => {
@@ -823,8 +844,17 @@ export function MobilePlayer() {
           <SettingsDialog
             onClearData={() => {
               clearCSVData();
+              clearCollection();
+              clearWantlist();
               clearCache();
+              deleteTracks(ownerKey);
               setDiscogsTracks([]);
+              setCurrentVideoId('');
+              cachedRowsRef.current = [];
+              hasAutoStartedRef.current = false;
+              lastSearchedTrackId.current = '';
+              prefetchedRef.current.clear();
+              fallbackAttemptedRef.current.clear();
             }}
             playlistTracks={playlist}
             isDiscogsAuthenticated={isAuthenticated}
@@ -892,7 +922,7 @@ export function MobilePlayer() {
         {/* Timeline */}
         <MobileTimeline
           currentTime={currentTime}
-          duration={currentTrack?.duration || 0}
+          duration={playerDuration || currentTrack?.duration || 0}
           onSeek={seekTo}
           trackId={currentTrack?.id}
         />

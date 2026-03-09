@@ -31,6 +31,7 @@ interface TrackCacheItem {
   youtube1?: string | null;
   youtube2?: string | null;
   working_status?: 'working' | 'non_working' | 'pending';
+  duration?: number | null;
 }
 
 serve(async (req) => {
@@ -55,7 +56,7 @@ serve(async (req) => {
 
       let query = supabase
         .from('discogs_track_cache')
-        .select('owner_key,source,track_id,release_id,track_position,artist,title,album,genre,label,year,country,cover1,cover2,cover3,cover4,youtube1,youtube2,working_status,updated_at')
+        .select('owner_key,source,track_id,release_id,track_position,artist,title,album,genre,label,year,country,cover1,cover2,cover3,cover4,youtube1,youtube2,working_status,duration,updated_at')
         .eq('owner_key', ownerKey)
         .order('updated_at', { ascending: false });
 
@@ -105,6 +106,7 @@ serve(async (req) => {
         youtube1: item.youtube1 ?? null,
         youtube2: item.youtube2 ?? null,
         working_status: item.working_status || 'pending',
+        duration: Number.isFinite(Number(item.duration)) && Number(item.duration) > 0 ? Number(item.duration) : null,
         updated_at: new Date().toISOString(),
       }));
 
@@ -127,6 +129,32 @@ serve(async (req) => {
       }
 
       return new Response(JSON.stringify({ ok: true, count: rows.length }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    if (action === 'delete') {
+      const ownerKey = String(body?.owner_key || '').trim();
+      if (!ownerKey) {
+        return new Response(JSON.stringify({ error: 'owner_key is required' }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      const { error } = await supabase
+        .from('discogs_track_cache')
+        .delete()
+        .eq('owner_key', ownerKey);
+
+      if (error) {
+        return new Response(JSON.stringify({ error: 'db_error' }), {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      return new Response(JSON.stringify({ ok: true }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }

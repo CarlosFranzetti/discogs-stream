@@ -30,6 +30,7 @@ export function usePlayer(initialTracks?: Track[], dislikedTracks?: Track[]) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
+  const [playerDuration, setPlayerDuration] = useState(0);
   const [showVideo, setShowVideo] = useState(false);
   
   const playerRef = useRef<YT.Player | null>(null);
@@ -185,10 +186,19 @@ export function usePlayer(initialTracks?: Track[], dislikedTracks?: Track[]) {
     });
   }, [initialTracks, filterDisliked]);
 
+  // Reset playerDuration when the track changes
+  useEffect(() => {
+    setPlayerDuration(0);
+  }, [currentIndex]);
+
   const updateTime = useCallback(() => {
     if (playerRef.current && typeof playerRef.current.getCurrentTime === 'function') {
       const time = playerRef.current.getCurrentTime();
       setCurrentTime(time);
+      if (typeof playerRef.current.getDuration === 'function') {
+        const dur = playerRef.current.getDuration();
+        if (dur > 0) setPlayerDuration(dur);
+      }
     }
   }, []);
 
@@ -296,6 +306,7 @@ export function usePlayer(initialTracks?: Track[], dislikedTracks?: Track[]) {
     currentIndex,
     isPlaying,
     currentTime,
+    playerDuration,
     showVideo,
     playerRef,
     play,
