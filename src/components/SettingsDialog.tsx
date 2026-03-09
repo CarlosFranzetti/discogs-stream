@@ -19,6 +19,8 @@ interface SettingsDialogProps {
   onDisconnectDiscogs?: () => void;
   onCollectionCSVUpload?: (file: File) => Promise<void>;
   onWantlistCSVUpload?: (file: File) => Promise<void>;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
 export function SettingsDialog({
@@ -30,6 +32,8 @@ export function SettingsDialog({
   onDisconnectDiscogs,
   onCollectionCSVUpload,
   onWantlistCSVUpload,
+  open,
+  onOpenChange,
 }: SettingsDialogProps) {
   const { theme, setTheme } = useTheme();
   const { settings, updateSetting } = useSettings();
@@ -46,9 +50,9 @@ export function SettingsDialog({
 
   const handleClear = () => {
     if (confirm('Are you sure you want to clear all local data (CSV, cache)? This cannot be undone.')) {
+      onOpenChange?.(false);
       onClearData();
-      toast.success('All local data cleared. Please reload.');
-      setTimeout(() => window.location.reload(), 1000);
+      toast.success('All data cleared.');
     }
   };
 
@@ -124,7 +128,7 @@ export function SettingsDialog({
   ] as const;
 
   return (
-    <Dialog>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogTrigger asChild>
         <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground">
           <Settings className="w-5 h-5" />

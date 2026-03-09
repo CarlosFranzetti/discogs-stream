@@ -856,6 +856,8 @@ export function MobilePlayer() {
         {/* Settings + Menu */}
         <div className="flex items-center gap-1 shrink-0">
           <SettingsDialog
+            open={isOptionsOpen}
+            onOpenChange={setIsOptionsOpen}
             onClearData={() => {
               clearCSVData();
               clearCollection();
