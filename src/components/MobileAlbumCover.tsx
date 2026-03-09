@@ -32,18 +32,17 @@ function useVinylDust(seed: string): DustParticle[] {
     };
 
     const particles: DustParticle[] = [];
-    for (let i = 0; i < 30; i++) {
+    for (let i = 0; i < 10; i++) {
       const angle = next() * Math.PI * 2;
-      // Keep dust in the vinyl groove area (outside label ~28%, inside rim ~96%)
-      const radius = 30 + next() * 34;
+      // Groove area: label ends at radius ~22, rim at ~48 — stay strictly inside
+      const radius = 23 + next() * 24;
       const cx = 50 + Math.cos(angle) * radius;
       const cy = 50 + Math.sin(angle) * radius;
-      // Mix of tiny specks and slightly larger flecks
-      const r2 = next() < 0.75 ? 0.3 + next() * 0.55 : 0.9 + next() * 0.7;
-      const opacity = 0.12 + next() * 0.28;
+      // Tiny specks only — very small
+      const r2 = 0.08 + next() * 0.18;
+      const opacity = 0.03 + next() * 0.06;
       particles.push({ cx, cy, r: r2, opacity });
     }
-    // A few hair-like scratches
     return particles;
   }, [seed]);
 }
