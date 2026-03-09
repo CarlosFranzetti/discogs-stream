@@ -6,7 +6,7 @@ import { Switch } from '@/components/ui/switch';
 import { useTheme } from '@/hooks/useTheme';
 import { useSettings } from '@/hooks/useSettings';
 import { useCSVCollection } from '@/hooks/useCSVCollection';
-import { Settings, Trash2, Palette, RefreshCw, Upload, Download, Music, Disc3, LogIn, AlertTriangle, X } from 'lucide-react';
+import { Settings, Trash2, Palette, RefreshCw, Upload, Download, Music, Disc3, LogIn, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import { Track } from '@/types/track';
 
@@ -19,8 +19,6 @@ interface SettingsDialogProps {
   onDisconnectDiscogs?: () => void;
   onCollectionCSVUpload?: (file: File) => Promise<void>;
   onWantlistCSVUpload?: (file: File) => Promise<void>;
-  onClearCollection?: () => void;
-  onClearWantlist?: () => void;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
 }
@@ -34,8 +32,6 @@ export function SettingsDialog({
   onDisconnectDiscogs,
   onCollectionCSVUpload,
   onWantlistCSVUpload,
-  onClearCollection,
-  onClearWantlist,
   open,
   onOpenChange,
 }: SettingsDialogProps) {
@@ -46,9 +42,7 @@ export function SettingsDialog({
     loadWantlistCSV,
     isLoading: isCSVLoading,
     collection,
-    wantlist,
-    clearCollection,
-    clearWantlist
+    wantlist
   } = useCSVCollection();
 
   const collectionInputRef = useRef<HTMLInputElement>(null);
@@ -56,9 +50,9 @@ export function SettingsDialog({
 
   const handleClear = () => {
     if (confirm('Are you sure you want to clear all local data (CSV, cache)? This cannot be undone.')) {
+      onOpenChange?.(false);
       onClearData();
-      toast.success('All local data cleared. Please reload.');
-      setTimeout(() => window.location.reload(), 1000);
+      toast.success('All data cleared.');
     }
   };
 
@@ -142,7 +136,7 @@ export function SettingsDialog({
       </DialogTrigger>
       <DialogContent className="sm:max-w-[400px] bg-card border-border p-0 font-sans">
         <DialogHeader className="px-5 pt-3 pb-2 border-b border-border/50">
-          <DialogTitle className="text-sm font-medium text-foreground">Options</DialogTitle>
+          <DialogTitle className="text-sm font-medium text-foreground">Settings</DialogTitle>
         </DialogHeader>
 
         <div className="px-5 pt-3 pb-4 space-y-3.5">
@@ -224,55 +218,13 @@ export function SettingsDialog({
             <input ref={wantlistInputRef} type="file" accept=".csv" onChange={handleWantlistUpload} className="hidden" />
 
             <div className="grid grid-cols-2 gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                className="justify-between text-xs h-8 px-3"
-                onClick={() => collectionInputRef.current?.click()}
-                disabled={isCSVLoading}
-              >
+              <Button variant="outline" size="sm" className="justify-between text-xs h-8 px-3" onClick={() => collectionInputRef.current?.click()} disabled={isCSVLoading}>
                 <span className="flex items-center gap-1.5"><Upload className="w-3 h-3" /> Collection</span>
-                <span className="flex items-center gap-1">
-                  {collection.length > 0 && <span className="text-muted-foreground">{collection.length}</span>}
-                  {collection.length > 0 && (
-                    <button
-                      type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onClearCollection ? onClearCollection() : clearCollection();
-                        }}
-                      className="p-1 -mr-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
-                      aria-label="Unload collection"
-                    >
-                      <X className="w-3 h-3" />
-                    </button>
-                  )}
-                </span>
+                {collection.length > 0 && <span className="text-muted-foreground">{collection.length}</span>}
               </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="justify-between text-xs h-8 px-3"
-                onClick={() => wantlistInputRef.current?.click()}
-                disabled={isCSVLoading}
-              >
+              <Button variant="outline" size="sm" className="justify-between text-xs h-8 px-3" onClick={() => wantlistInputRef.current?.click()} disabled={isCSVLoading}>
                 <span className="flex items-center gap-1.5"><Upload className="w-3 h-3" /> Wantlist</span>
-                <span className="flex items-center gap-1">
-                  {wantlist.length > 0 && <span className="text-muted-foreground">{wantlist.length}</span>}
-                  {wantlist.length > 0 && (
-                    <button
-                      type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onClearWantlist ? onClearWantlist() : clearWantlist();
-                        }}
-                      className="p-1 -mr-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
-                      aria-label="Unload wantlist"
-                    >
-                      <X className="w-3 h-3" />
-                    </button>
-                  )}
-                </span>
+                {wantlist.length > 0 && <span className="text-muted-foreground">{wantlist.length}</span>}
               </Button>
             </div>
 

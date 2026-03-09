@@ -102,10 +102,18 @@ export default {
           "50%": { boxShadow: "0 0 60px var(--pulse-color)" },
         },
         "rainbow-pulse": {
-          "0%, 100%": { boxShadow: "0 0 40px hsl(190 90% 50% / 0.5)" },
-          "25%": { boxShadow: "0 0 50px hsl(280 80% 60% / 0.5)" },
-          "50%": { boxShadow: "0 0 40px hsl(25 100% 55% / 0.5)" },
-          "75%": { boxShadow: "0 0 50px hsl(52 100% 55% / 0.5)" },
+          "0%":   { boxShadow: "0 0 0 3px hsl(190 100% 55% / 0.9), 0 0 40px 12px hsl(190 100% 55% / 0.4), 0 0 90px 30px hsl(190 100% 55% / 0.15)" },
+          "14%":  { boxShadow: "0 0 0 3px hsl(270 100% 68% / 0.9), 0 0 50px 15px hsl(270 100% 68% / 0.4), 0 0 100px 35px hsl(270 100% 68% / 0.15)" },
+          "28%":  { boxShadow: "0 0 0 3px hsl(340 100% 62% / 0.9), 0 0 40px 12px hsl(340 100% 62% / 0.4), 0 0 90px 30px hsl(340 100% 62% / 0.15)" },
+          "42%":  { boxShadow: "0 0 0 3px hsl(25 100% 58% / 0.9),  0 0 50px 15px hsl(25 100% 58% / 0.4),  0 0 100px 35px hsl(25 100% 58% / 0.15)" },
+          "57%":  { boxShadow: "0 0 0 3px hsl(52 100% 58% / 0.9),  0 0 40px 12px hsl(52 100% 58% / 0.4),  0 0 90px 30px hsl(52 100% 58% / 0.15)" },
+          "71%":  { boxShadow: "0 0 0 3px hsl(140 90% 48% / 0.9),  0 0 50px 15px hsl(140 90% 48% / 0.4),  0 0 100px 35px hsl(140 90% 48% / 0.15)" },
+          "85%":  { boxShadow: "0 0 0 3px hsl(200 100% 52% / 0.9), 0 0 40px 12px hsl(200 100% 52% / 0.4), 0 0 90px 30px hsl(200 100% 52% / 0.15)" },
+          "100%": { boxShadow: "0 0 0 3px hsl(190 100% 55% / 0.9), 0 0 40px 12px hsl(190 100% 55% / 0.4), 0 0 90px 30px hsl(190 100% 55% / 0.15)" },
+        },
+        "rainbow-scale": {
+          "0%, 100%": { transform: "scale(1)" },
+          "50%":      { transform: "scale(1.018)" },
         },
       },
       animation: {
@@ -114,7 +122,7 @@ export default {
         "spin-slow": "spin-slow 8s linear infinite",
         "pulse-glow": "pulse-glow 2s ease-in-out infinite",
         "pulse-slow": "pulse-slow 20s ease-in-out infinite",
-        "rainbow-pulse": "rainbow-pulse 6s ease-in-out infinite",
+        "rainbow-pulse": "rainbow-pulse 4s ease-in-out infinite, rainbow-scale 2s ease-in-out infinite",
       },
       boxShadow: {
         vinyl: "0 20px 60px -15px hsl(220 15% 0% / 0.6)",

@@ -102,6 +102,9 @@ export function MobilePlayer() {
     setDiscogsTracks((prev) =>
       prev.map((track) => (track.id === trackId ? { ...track, ...normalizedPatch } : track))
     );
+    setVerifiedTracks((prev) =>
+      prev.map((track) => (track.id === trackId ? { ...track, ...normalizedPatch } : track))
+    );
   }, []);
 
   // Merge CSV tracks with Discogs tracks
@@ -115,7 +118,14 @@ export function MobilePlayer() {
     }
   }, [csvAllTracks]);
   
+  // Verification is now handled by the hook
+  const [verifiedTracks, setVerifiedTracks] = useState<Track[]>([]);
   const verifiedTracksRef = useRef<Track[]>([]);
+  
+  // Sync verified tracks with discogsTracks for now (until we need separate lists)
+  useEffect(() => {
+     setVerifiedTracks(discogsTracks);
+  }, [discogsTracks]);
 
   const [lastFetchedKey, setLastFetchedKey] = useState<string | null>(null);
   const cacheHydratedRef = useRef<string | null>(null);
@@ -125,32 +135,19 @@ export function MobilePlayer() {
   const prefetchedRef = useRef<Set<string>>(new Set());
   const [activeSources, setActiveSources] = useState<SourceType[]>(['collection', 'wantlist']);
   const [hasUserInteracted, setHasUserInteracted] = useState(false);
-  const [isOptionsOpen, setIsOptionsOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isOptionsOpen, setIsOptionsOpen] = useState(false);
   const [volume, setVolume] = useState(100);
   const [showReloadConfirm, setShowReloadConfirm] = useState(false);
 
   useEffect(() => {
-    verifiedTracksRef.current = discogsTracks;
-  }, [discogsTracks]);
+    verifiedTracksRef.current = verifiedTracks;
+  }, [verifiedTracks]);
 
   // Filter tracks by active sources - use verified tracks only
   const filteredTracks = useMemo(() => {
-    return discogsTracks.filter(track => activeSources.includes(track.source));
-  }, [discogsTracks, activeSources]);
-
-  // When both CSV sources are cleared, ensure UI returns to title screen and playback stops
-  useEffect(() => {
-    if (discogsTracks.length === 0) {
-      setHasUserInteracted(false);
-      setIsPlaying(false);
-      setCurrentVideoId('');
-      setCurrentTime(0);
-      setPlaylist([]);
-      setCurrentIndex(0);
-    }
-  }, [discogsTracks.length, setCurrentIndex, setCurrentTime, setIsPlaying, setPlaylist]);
+    return verifiedTracks.filter(track => activeSources.includes(track.source));
+  }, [verifiedTracks, activeSources]);
 
   const handleToggleSource = useCallback((source: SourceType) => {
     setActiveSources(prev => {
@@ -205,12 +202,12 @@ export function MobilePlayer() {
     onSkipNext: skipNext,
     onTogglePlaylist: () => setSidebarOpen(prev => !prev),
     onToggleShuffle: toggleShuffle,
-    onOpenOptions: () => setIsOptionsOpen(prev => !prev),
+    onToggleOptions: () => setIsOptionsOpen(prev => !prev),
   });
 
   // Background Verifier Hook — no quota guard; yt-dlp/Invidious run regardless of API quota
   const { isVerifying, progress: verifyProgress, triggerImmediate } = useBackgroundVerifier({
-    tracks: discogsTracks,
+    tracks: verifiedTracks,
     currentTrack: playlist[currentIndex] || null,
     isPlaying,
     searchForVideo,
@@ -275,12 +272,8 @@ export function MobilePlayer() {
     if (syncTimerRef.current) {
       window.clearTimeout(syncTimerRef.current);
     }
-    syncTimerRef.current = window.setTimeout(async () => {
-      try {
-        await upsertTracks(ownerKey, discogsTracks);
-      } catch (err) {
-        console.error('[MobilePlayer] Failed to sync tracks to Supabase:', err);
-      }
+    syncTimerRef.current = window.setTimeout(() => {
+      upsertTracks(ownerKey, discogsTracks);
     }, 500);
     return () => {
       if (syncTimerRef.current) {
@@ -356,7 +349,7 @@ export function MobilePlayer() {
              playerRef.current.playVideo();
            }
         }
-      }, 500);
+      }, 200);
       return () => clearTimeout(timeoutId);
     }
   }, [currentVideoId, isPlaying]);
@@ -404,7 +397,9 @@ export function MobilePlayer() {
     if (!cache) return;
 
     setDiscogsTracks((prev) => (prev.length === 0 ? cache.discogsTracks : prev));
-    // playableTracks from cache are merged into discogsTracks via setDiscogsTracks above
+    if (verifiedTracksRef.current.length === 0) {
+      setVerifiedTracks(cache.playableTracks);
+    }
   }, [isCacheReady]);
 
   useEffect(() => {
@@ -473,7 +468,6 @@ export function MobilePlayer() {
 
   useEffect(() => {
     prefetchedRef.current.clear();
-    fallbackAttemptedRef.current.clear();
   }, [discogsTracks.length]);
 
   // Load cover art for Discogs tracks when they change
@@ -503,9 +497,12 @@ export function MobilePlayer() {
     const username = credentials?.username;
     if (!username || discogsTracks.length === 0) return;
 
-    const playable = discogsTracks.filter((track) => !!track.youtubeId || !!track.bandcampEmbedSrc);
+    const playable =
+      verifiedTracks.length > 0
+        ? verifiedTracks
+        : discogsTracks.filter((track) => !!track.youtubeId || !!track.bandcampEmbedSrc);
     writeDiscogsCache(username, discogsTracks, playable);
-  }, [credentials?.username, discogsTracks]);
+  }, [credentials?.username, discogsTracks, verifiedTracks]);
 
   // Track if we've auto-started playback
   const hasAutoStartedRef = useRef(false);
@@ -518,14 +515,14 @@ export function MobilePlayer() {
 
   // Auto-start playback when first track is ready (and actually has a video)
   useEffect(() => {
-     if (discogsTracks.length > 0 && !hasAutoStartedRef.current && hasUserInteracted) {
-         const firstTrack = discogsTracks[0];
+     if (verifiedTracks.length > 0 && !hasAutoStartedRef.current && hasUserInteracted) {
+         const firstTrack = verifiedTracks[0];
          if (firstTrack.youtubeId) {
              // Only auto-start if we have a valid ID
              hasAutoStartedRef.current = true;
          }
      }
-  }, [discogsTracks, hasUserInteracted]);
+  }, [verifiedTracks, hasUserInteracted]);
 
   // Update playlist when filtered tracks change
   useEffect(() => {
@@ -690,33 +687,17 @@ export function MobilePlayer() {
     return c && w ? 'Collection & Wantlist' : c ? 'Collection' : 'Wantlist';
   }, [activeSources]);
 
-  const pickRandomPlayableIndex = useCallback(() => {
-    if (playlist.length === 0) return -1;
-    // Prefer tracks that already have playable media
-    const playableIndices = playlist
-      .map((t, idx) => ({ t, idx }))
-      .filter(({ t }) => t.youtubeId || t.bandcampEmbedSrc)
-      .map(({ idx }) => idx);
-    const candidates = playableIndices.length > 0 ? playableIndices : playlist.map((_, idx) => idx);
-    const start = Math.floor(Math.random() * candidates.length);
-    // Iterate circularly until we find a playable track with a link
-    for (let i = 0; i < candidates.length; i++) {
-      const idx = candidates[(start + i) % candidates.length];
-      const track = playlist[idx];
-      if (track.youtubeId || track.bandcampEmbedSrc) return idx;
-    }
-    return candidates[start] ?? -1;
-  }, [playlist]);
-
   const handleStartListening = useCallback(() => {
-    const randomIdx = pickRandomPlayableIndex();
-    if (randomIdx !== -1) {
-      setCurrentIndex(randomIdx);
-      setCurrentTime(0);
-      setIsPlaying(true);
+    // If audio is already preloaded for a different track, sync to what's actually playing
+    if (currentVideoId) {
+      const playingIdx = playlist.findIndex(t => t.youtubeId === currentVideoId);
+      if (playingIdx !== -1 && playingIdx !== currentIndex) {
+        setCurrentIndex(playingIdx);
+        setCurrentTime(0);
+      }
     }
     setHasUserInteracted(true);
-  }, [pickRandomPlayableIndex, setCurrentIndex, setCurrentTime, setIsPlaying]);
+  }, [currentVideoId, playlist, currentIndex, setCurrentIndex, setCurrentTime]);
 
   // CSV upload handlers with toast notifications and cover art scraping
   const handleCollectionCSVUpload = async (file: File) => {
@@ -767,13 +748,11 @@ export function MobilePlayer() {
   const handleClearCollection = () => {
     clearCollection();
     setDiscogsTracks(prev => prev.filter(t => t.source !== 'collection'));
-    setHasUserInteracted(prev => prev && false);
   };
 
   const handleClearWantlist = () => {
     clearWantlist();
     setDiscogsTracks(prev => prev.filter(t => t.source !== 'wantlist'));
-    setHasUserInteracted(prev => prev && false);
   };
 
   // Loading states
@@ -826,12 +805,12 @@ export function MobilePlayer() {
           activeSources={activeSources}
           onToggleSource={handleToggleSource}
           onStartListening={handleStartListening}
-          trackCount={discogsTracks.length}
+          trackCount={verifiedTracks.length}
           isVerifying={isVerifying}
           verifyProgress={verifyProgress}
-          hasCSVData={discogsTracks.length > 0}
-          csvCollectionCount={discogsTracks.filter(t => t.source === 'collection').length}
-          csvWantlistCount={discogsTracks.filter(t => t.source === 'wantlist').length}
+          hasCSVData={verifiedTracks.length > 0}
+          csvCollectionCount={verifiedTracks.filter(t => t.source === 'collection').length}
+          csvWantlistCount={verifiedTracks.filter(t => t.source === 'wantlist').length}
           onCollectionCSVUpload={handleCollectionCSVUpload}
           onWantlistCSVUpload={handleWantlistCSVUpload}
           onClearCollection={handleClearCollection}
@@ -874,9 +853,11 @@ export function MobilePlayer() {
           </span>
         </div>
 
-        {/* Options + Menu */}
+        {/* Settings + Menu */}
         <div className="flex items-center gap-1 shrink-0">
           <SettingsDialog
+            open={isOptionsOpen}
+            onOpenChange={setIsOptionsOpen}
             onClearData={() => {
               clearCSVData();
               clearCollection();
@@ -898,10 +879,6 @@ export function MobilePlayer() {
             onDisconnectDiscogs={logout}
             onCollectionCSVUpload={handleCollectionCSVUpload}
             onWantlistCSVUpload={handleWantlistCSVUpload}
-            onClearCollection={handleClearCollection}
-            onClearWantlist={handleClearWantlist}
-            open={isOptionsOpen}
-            onOpenChange={setIsOptionsOpen}
           />
           <button
             onClick={() => setSidebarOpen(prev => !prev)}
@@ -1044,6 +1021,8 @@ export function MobilePlayer() {
         isUserLoggedIn={isUserLoggedIn}
         userEmail={user?.email}
         onSignOut={signOut}
+        activeSources={activeSources}
+        onToggleSource={handleToggleSource}
       />
       </div>{/* end player column */}
     </div>
