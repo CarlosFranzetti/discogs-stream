@@ -47,15 +47,33 @@ serve(async (req) => {
 
     const data = await response.json();
 
-    // Return minimal data needed for cover art
+    // Return full release data (cover art + tracklist + videos)
     const result = {
       id: data.id,
       title: data.title,
       thumb: data.thumb,
       cover_image: data.images?.[0]?.uri || data.thumb,
+      images: data.images?.map((img: { uri?: string; resource_url?: string; type?: string }) => ({
+        uri: img.uri || img.resource_url || '',
+        type: img.type,
+      })),
       artists: data.artists?.map((a: { name: string }) => ({ name: a.name })),
       year: data.year,
+      country: data.country,
       genres: data.genres,
+      styles: data.styles,
+      labels: data.labels?.map((l: { name: string }) => ({ name: l.name })),
+      tracklist: data.tracklist?.map((t: { position?: string; title?: string; duration?: string; type_?: string; artists?: Array<{ name: string }> }) => ({
+        position: t.position,
+        title: t.title,
+        duration: t.duration,
+        type_: t.type_,
+        artists: t.artists?.map((a: { name: string }) => ({ name: a.name })),
+      })),
+      videos: data.videos?.map((v: { uri?: string; url?: string; title?: string }) => ({
+        uri: v.uri || v.url || '',
+        title: v.title,
+      })),
     };
 
     return new Response(JSON.stringify(result), {

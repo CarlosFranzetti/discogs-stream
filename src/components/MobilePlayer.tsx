@@ -26,6 +26,7 @@ import { useBackgroundVerifier } from '@/hooks/useBackgroundVerifier';
 import { useCoverArtScraper } from '@/hooks/useCoverArtScraper';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import { resolveOwnerKey, useTrackCache, type TrackCacheRow } from '@/hooks/useTrackCache';
+import { useCsvTrackExpander } from '@/hooks/useCsvTrackExpander';
 
 export function MobilePlayer() {
   const navigate = useNavigate();
@@ -281,6 +282,51 @@ export function MobilePlayer() {
 
   // Cover art scraping notifications are handled per-track as they update
 
+  const { expandAll: expandCsvTracks } = useCsvTrackExpander();
+
+  /**
+   * Expand release-level CSV tracks into individual per-track entries
+   * in the background (1 req/sec to respect Discogs rate limit).
+   * Old release-level placeholders are replaced as tracks come in.
+   */
+  const runTrackExpansion = useCallback(
+    async (releaseTracks: Track[], source: 'collection' | 'wantlist') => {
+      if (releaseTracks.length === 0) return;
+
+      const releaseIds = new Set(releaseTracks.map((t) => t.discogsReleaseId).filter(Boolean));
+      toast.info(`Expanding ${releaseIds.size} releases into individual tracks…`);
+
+      await expandCsvTracks(releaseTracks, (expandedSoFar, done, total) => {
+        // Replace placeholder entries with expanded track entries
+        setDiscogsTracks((prev) => {
+          // Remove placeholders for releases we've just expanded
+          const expandedReleaseIds = new Set(
+            expandedSoFar.map((t) => t.discogsReleaseId).filter(Boolean)
+          );
+          const filtered = prev.filter(
+            (t) =>
+              // Keep tracks from other sources / already-expanded tracks
+              t.source !== source ||
+              // Keep non-CSV-placeholder IDs (already expanded = has track_position)
+              t.discogsTrackPosition !== undefined ||
+              // Keep if this release hasn't been expanded yet
+              !expandedReleaseIds.has(t.discogsReleaseId)
+          );
+
+          // Add the expanded tracks, deduplicating by id
+          const existingIds = new Set(filtered.map((t) => t.id));
+          const newTracks = expandedSoFar.filter((t) => !existingIds.has(t.id));
+          return [...filtered, ...newTracks];
+        });
+
+        if (done === total) {
+          toast.success(`Expanded to individual tracks (${done} releases)`);
+        }
+      });
+    },
+    [expandCsvTracks]
+  );
+
   // Handle volume change
   const handleVolumeChange = useCallback((value: number[]) => {
     const newVolume = value[0];
@@ -459,6 +505,12 @@ export function MobilePlayer() {
   // Track if we've auto-started playback
   const hasAutoStartedRef = useRef(false);
 
+  // Ref mirror of hasUserInteracted — readable inside async callbacks without stale closure
+  const hasUserInteractedRef = useRef(false);
+  useEffect(() => {
+    hasUserInteractedRef.current = hasUserInteracted;
+  }, [hasUserInteracted]);
+
   // Auto-start playback when first track is ready (and actually has a video)
   useEffect(() => {
      if (verifiedTracks.length > 0 && !hasAutoStartedRef.current && hasUserInteracted) {
@@ -495,13 +547,17 @@ export function MobilePlayer() {
         applyTrackPatch(trackId, { workingStatus: 'non_working' });
       };
 
+      // Non-working tracks skip faster (500ms); new pending tracks get 3s to resolve
+      const skipDelay = currentTrack.workingStatus === 'non_working' ? 500 : 3000;
       const timeoutId = window.setTimeout(() => {
         if (cancelled) return;
+        // Only skip if the user has started listening — never skip on the title screen
+        if (!hasUserInteractedRef.current) return;
         timedOut = true;
         markAsNonWorking();
         setCurrentVideoId('');
         skipNext();
-      }, 3000);
+      }, skipDelay);
 
       (async () => {
         const media = await resolveMediaForTrack(currentTrack);
@@ -529,11 +585,16 @@ export function MobilePlayer() {
           });
           window.clearTimeout(timeoutId);
         } else {
-          if (!timedOut) {
+          if (!timedOut && hasUserInteractedRef.current) {
+            // Only skip if user has started listening
             markAsNonWorking();
             setCurrentVideoId('');
             window.clearTimeout(timeoutId);
             skipNext();
+          } else if (!timedOut) {
+            // On title screen: just mark non_working, don't skip
+            markAsNonWorking();
+            window.clearTimeout(timeoutId);
           }
         }
       });
@@ -639,38 +700,17 @@ export function MobilePlayer() {
   // CSV upload handlers with toast notifications and cover art scraping
   const handleCollectionCSVUpload = async (file: File) => {
     try {
-      // First import should clear active playback/demo stream state.
       setIsPlaying(false);
       setCurrentVideoId('');
 
-      const tracks = await loadCollectionCSV(file);
-      toast.success(`Loaded ${tracks.length} collection items from CSV`);
+      const releaseTracks = await loadCollectionCSV(file);
+      toast.success(`Loaded ${releaseTracks.length} releases from CSV — expanding tracks…`);
 
-      if (tracks.length > 0) {
-        const firstTrack = tracks[0];
-        const firstVideoId = await Promise.race<string>([
-          searchForVideo(firstTrack),
-          new Promise((resolve) => setTimeout(() => resolve(''), 3000)),
-        ]);
-        if (firstVideoId) {
-          updateCSVTrack({ ...firstTrack, youtubeId: firstVideoId, workingStatus: 'working' });
-        } else {
-          updateCSVTrack({ ...firstTrack, workingStatus: 'non_working' });
-        }
-
-        await upsertTracks(ownerKey, tracks);
-      }
-
-      // Load cover art from database immediately, then scrape missing ones
-      if (tracks.length > 0) {
-        const dbLoadCount = await batchLoadCoverArtFromDb(tracks, updateCSVTrack);
-        if (dbLoadCount > 0) {
-          toast.success(`Loaded ${dbLoadCount} covers from database`);
-        }
-        toast.info('Fetching remaining cover art...');
-        scrapeCoverArt(tracks, updateCSVTrack, true);
-        // Trigger immediate background verification for first track
+      if (releaseTracks.length > 0) {
+        await upsertTracks(ownerKey, releaseTracks);
         triggerImmediate();
+        // Background: expand each release into individual tracks (1 req/sec)
+        runTrackExpansion(releaseTracks, 'collection');
       }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to load CSV');
@@ -679,38 +719,17 @@ export function MobilePlayer() {
 
   const handleWantlistCSVUpload = async (file: File) => {
     try {
-      // First import should clear active playback/demo stream state.
       setIsPlaying(false);
       setCurrentVideoId('');
 
-      const tracks = await loadWantlistCSV(file);
-      toast.success(`Loaded ${tracks.length} wantlist items from CSV`);
+      const releaseTracks = await loadWantlistCSV(file);
+      toast.success(`Loaded ${releaseTracks.length} releases from CSV — expanding tracks…`);
 
-      if (tracks.length > 0) {
-        const firstTrack = tracks[0];
-        const firstVideoId = await Promise.race<string>([
-          searchForVideo(firstTrack),
-          new Promise((resolve) => setTimeout(() => resolve(''), 3000)),
-        ]);
-        if (firstVideoId) {
-          updateCSVTrack({ ...firstTrack, youtubeId: firstVideoId, workingStatus: 'working' });
-        } else {
-          updateCSVTrack({ ...firstTrack, workingStatus: 'non_working' });
-        }
-
-        await upsertTracks(ownerKey, tracks);
-      }
-
-      // Load cover art from database immediately, then scrape missing ones
-      if (tracks.length > 0) {
-        const dbLoadCount = await batchLoadCoverArtFromDb(tracks, updateCSVTrack);
-        if (dbLoadCount > 0) {
-          toast.success(`Loaded ${dbLoadCount} covers from database`);
-        }
-        toast.info('Fetching remaining cover art...');
-        scrapeCoverArt(tracks, updateCSVTrack, true);
-        // Trigger immediate background verification for first track
+      if (releaseTracks.length > 0) {
+        await upsertTracks(ownerKey, releaseTracks);
         triggerImmediate();
+        // Background: expand each release into individual tracks (1 req/sec)
+        runTrackExpansion(releaseTracks, 'wantlist');
       }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to load CSV');
@@ -718,13 +737,6 @@ export function MobilePlayer() {
   };
 
   // Retry a non_working track on demand (from playlist click)
-  const handleRetryTrack = useCallback(async (track: Track) => {
-    const videoId = await searchForVideo(track, { force: true });
-    if (videoId) {
-      updateDiscogsTrack({ ...track, youtubeId: videoId, workingStatus: 'working' });
-    }
-  }, [searchForVideo, updateDiscogsTrack]);
-
   const handleClearCSV = () => {
     clearCSVData();
     setDiscogsTracks([]);
@@ -1005,7 +1017,6 @@ export function MobilePlayer() {
         isUserLoggedIn={isUserLoggedIn}
         userEmail={user?.email}
         onSignOut={signOut}
-        onRetryTrack={handleRetryTrack}
       />
       </div>{/* end player column */}
     </div>

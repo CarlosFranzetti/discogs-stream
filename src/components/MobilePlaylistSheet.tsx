@@ -1,8 +1,8 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState } from 'react';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Track } from '@/types/track';
-import { Music, Heart, ShoppingCart, Disc3, User, Ban, Loader2, Search } from 'lucide-react';
+import { Music, Heart, ShoppingCart, Disc3, User, Ban, Search } from 'lucide-react';
 import { useSettings } from '@/hooks/useSettings';
 
 interface MobilePlaylistSheetProps {
@@ -17,7 +17,6 @@ interface MobilePlaylistSheetProps {
   isUserLoggedIn: boolean;
   userEmail?: string;
   onSignOut: () => void;
-  onRetryTrack?: (track: Track) => void;
 }
 
 export function MobilePlaylistSheet({
@@ -32,10 +31,8 @@ export function MobilePlaylistSheet({
   isUserLoggedIn,
   userEmail,
   onSignOut: _onSignOut,
-  onRetryTrack,
 }: MobilePlaylistSheetProps) {
-  const [retryingId, setRetryingId] = useState<string | null>(null);
-  const retriedOnce = useRef<Set<string>>(new Set());
+  const retryingId = null;
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<'none' | 'artist' | 'title' | 'genre'>('none');
   const { settings } = useSettings();
@@ -58,44 +55,12 @@ export function MobilePlaylistSheet({
         return va.localeCompare(vb);
       });
 
-  // When a retrying track gets resolved, clear the retryingId
-  useEffect(() => {
-    if (!retryingId) return;
-    const track = playlist.find(t => t.id === retryingId);
-    if (track?.workingStatus === 'working' && track?.youtubeId) {
-      setRetryingId(null);
-    }
-  }, [playlist, retryingId]);
-
   const handleTrackClick = (track: Track, index: number) => {
-    const isNonWorking = track.workingStatus === 'non_working';
+    // Non-working tracks are display-only — not clickable
+    if (track.workingStatus === 'non_working') return;
 
-    if (!isNonWorking) {
-      onSelectTrack(index);
-      onClose();
-      return;
-    }
-
-    if (retryingId === track.id) {
-      if (track.youtubeId && track.workingStatus === 'working') {
-        onSelectTrack(index);
-        onClose();
-      }
-      return;
-    }
-
-    if (retriedOnce.current.has(track.id)) {
-      if (track.youtubeId && track.workingStatus === 'working') {
-        onSelectTrack(index);
-        onClose();
-      }
-      return;
-    }
-
-    // First click: trigger background retry
-    retriedOnce.current.add(track.id);
-    setRetryingId(track.id);
-    onRetryTrack?.(track);
+    onSelectTrack(index);
+    onClose();
   };
 
   const getSourceIcon = (source: string) => {
@@ -151,7 +116,7 @@ export function MobilePlaylistSheet({
               const index = playlist.indexOf(track);
               const isNonWorking = track.workingStatus === 'non_working';
               const isPending = !track.youtubeId && track.workingStatus !== 'working' && !isNonWorking;
-              const isRetrying = retryingId === track.id;
+              void retryingId; // unused, kept for future retry UX
               const opacityClass = isNonWorking ? 'opacity-50' : isPending ? 'opacity-75' : '';
               const coverSize = isTight ? 'w-8 h-8' : 'w-10 h-10';
               const entryPadding = isTight ? 'py-1.5' : 'py-2.5';
@@ -163,8 +128,10 @@ export function MobilePlaylistSheet({
                     className={`w-full flex items-center gap-2.5 px-4 ${entryPadding} transition-colors text-left ${
                       index === currentIndex
                         ? 'bg-primary/10 border-l-2 border-primary'
+                        : isNonWorking
+                        ? ''
                         : 'hover:bg-muted/50'
-                    } ${opacityClass} ${isNonWorking && !isRetrying ? 'cursor-pointer' : ''} ${isRetrying ? 'cursor-wait' : ''}`}
+                    } ${opacityClass} ${isNonWorking ? 'cursor-not-allowed select-none' : 'cursor-pointer'}`}
                   >
                     {/* Track number / playing indicator */}
                     <div className="w-5 text-center shrink-0">
@@ -189,12 +156,7 @@ export function MobilePlaylistSheet({
                           🎵
                         </div>
                       )}
-                      {isRetrying && (
-                        <div className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-background/80 rounded-tl flex items-center justify-center">
-                          <Loader2 className="w-2 h-2 text-primary animate-spin" />
-                        </div>
-                      )}
-                      {isNonWorking && !isRetrying && (
+                      {isNonWorking && (
                         <div className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-background/80 rounded-tl flex items-center justify-center">
                           <Ban className="w-2 h-2 text-muted-foreground" />
                         </div>
