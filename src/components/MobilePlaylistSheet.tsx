@@ -84,7 +84,11 @@ export function MobilePlaylistSheet({
 
   return (
     <Sheet open={isOpen} onOpenChange={onClose}>
-      <SheetContent side="right" className="w-[320px] sm:w-[380px] p-0 flex flex-col">
+      <SheetContent
+        side="right"
+        className="w-[320px] sm:w-[380px] p-0 flex flex-col"
+        onOpenAutoFocus={(e) => e.preventDefault()}
+      >
         <SheetHeader className="p-4 border-b border-border">
           <SheetTitle className="flex items-center gap-2 text-base">
             <Music className="w-4 h-4 text-primary" />
@@ -92,55 +96,22 @@ export function MobilePlaylistSheet({
           </SheetTitle>
         </SheetHeader>
 
-        {/* Search + sort chips */}
-        <div className="px-4 py-2 border-b border-border">
-          <div className="flex items-center gap-2 bg-muted/50 rounded-lg px-3 py-1.5">
-            <Search className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-            <input
-              type="text"
-              placeholder="Search tracks..."
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
-              className="bg-transparent text-sm flex-1 outline-none text-foreground placeholder:text-muted-foreground"
-            />
-          </div>
-          <div className="flex gap-1.5 mt-2 flex-wrap">
-            {(['artist', 'title', 'genre'] as const).map((key) => (
-              <button
-                key={key}
-                onClick={() => setSortBy(prev => prev === key ? 'none' : key)}
-                className={`px-2 py-0.5 rounded-full text-[10px] border transition-colors capitalize ${
-                  sortBy === key
-                    ? 'bg-primary/15 text-primary border-primary'
-                    : 'bg-muted text-muted-foreground border-transparent'
-                }`}
-              >
-                {key.charAt(0).toUpperCase() + key.slice(1)}
-              </button>
-            ))}
-            {/* Source filter toggles */}
-            {showSourceFilter && (
-              <>
-                <div className="w-px bg-border mx-0.5 self-stretch" />
-                {(['collection', 'wantlist'] as const).map((src) => {
-                  const active = activeSources!.includes(src);
-                  return (
-                    <button
-                      key={src}
-                      onClick={() => onToggleSource?.(src)}
-                      className={`px-2 py-0.5 rounded-full text-[10px] border transition-colors flex items-center gap-1 ${
-                        active
-                          ? 'bg-primary/15 text-primary border-primary'
-                          : 'bg-muted text-muted-foreground/50 border-transparent line-through'
-                      }`}
-                    >
-                      {src === 'collection' ? '◎' : '♡'} {src.charAt(0).toUpperCase() + src.slice(1)}
-                    </button>
-                  );
-                })}
-              </>
-            )}
-          </div>
+        {/* Track count + user info (moved to top) */}
+        <div className="border-b border-border px-4 py-2.5 space-y-1">
+          <p className="text-xs text-muted-foreground">{playlist.length} tracks in queue</p>
+
+          {isDiscogsAuthenticated && discogsUsername && (
+            <div className="flex items-center gap-2 text-sm">
+              <span className="text-success">●</span>
+              <span className="text-muted-foreground">Connected to Discogs</span>
+            </div>
+          )}
+          {isUserLoggedIn && userEmail && (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <User className="w-4 h-4" />
+              <span>{userEmail.split('@')[0]}</span>
+            </div>
+          )}
         </div>
 
         <ScrollArea className="flex-1">
@@ -220,24 +191,55 @@ export function MobilePlaylistSheet({
           </div>
         </ScrollArea>
 
-        {/* Footer with track count + user info */}
-        <div className="border-t border-border p-4 space-y-3">
-          <p className="text-xs text-muted-foreground">{playlist.length} tracks in queue</p>
-
-          {isDiscogsAuthenticated && discogsUsername && (
-            <div className="flex items-center justify-between text-sm">
-              <div className="flex items-center gap-2">
-                <span className="text-success">●</span>
-                <span className="text-muted-foreground">Connected to Discogs</span>
-              </div>
-            </div>
-          )}
-          {isUserLoggedIn && userEmail && (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <User className="w-4 h-4" />
-              <span>{userEmail.split('@')[0]}</span>
-            </div>
-          )}
+        {/* Search + sort chips (moved to bottom for thumb reach) */}
+        <div className="px-4 py-2 border-t border-border">
+          <div className="flex items-center gap-2 bg-muted/50 rounded-lg px-3 py-1.5">
+            <Search className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+            <input
+              type="text"
+              placeholder="Search tracks..."
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              className="bg-transparent text-sm flex-1 outline-none text-foreground placeholder:text-muted-foreground"
+            />
+          </div>
+          <div className="flex gap-1.5 mt-2 flex-wrap">
+            {(['artist', 'title', 'genre'] as const).map((key) => (
+              <button
+                key={key}
+                onClick={() => setSortBy(prev => prev === key ? 'none' : key)}
+                className={`px-2 py-0.5 rounded-full text-[10px] border transition-colors capitalize ${
+                  sortBy === key
+                    ? 'bg-primary/15 text-primary border-primary'
+                    : 'bg-muted text-muted-foreground border-transparent'
+                }`}
+              >
+                {key.charAt(0).toUpperCase() + key.slice(1)}
+              </button>
+            ))}
+            {/* Source filter toggles */}
+            {showSourceFilter && (
+              <>
+                <div className="w-px bg-border mx-0.5 self-stretch" />
+                {(['collection', 'wantlist'] as const).map((src) => {
+                  const active = activeSources!.includes(src);
+                  return (
+                    <button
+                      key={src}
+                      onClick={() => onToggleSource?.(src)}
+                      className={`px-2 py-0.5 rounded-full text-[10px] border transition-colors flex items-center gap-1 ${
+                        active
+                          ? 'bg-primary/15 text-primary border-primary'
+                          : 'bg-muted text-muted-foreground/50 border-transparent line-through'
+                      }`}
+                    >
+                      {src === 'collection' ? '◎' : '♡'} {src.charAt(0).toUpperCase() + src.slice(1)}
+                    </button>
+                  );
+                })}
+              </>
+            )}
+          </div>
         </div>
       </SheetContent>
     </Sheet>
