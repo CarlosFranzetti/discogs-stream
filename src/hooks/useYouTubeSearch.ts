@@ -106,7 +106,6 @@ export function useYouTubeSearch() {
           if (error) {
             const status = (error as { context?: { status?: number } })?.context?.status;
             const msg = String(error.message || 'YouTube search failed');
-            console.error('YouTube search failed:', msg);
 
              if (status === 429 || isQuotaError(msg)) {
                markQuotaExceeded();
@@ -127,8 +126,7 @@ export function useYouTubeSearch() {
           if (videos.length > 0) {
             const videoId = videos[0].videoId;
             videoCache.set(cacheKey, videoId);
-            unavailableCache.delete(cacheKey); // Remove from unavailable if it was there
-            console.log(`Found YouTube video for "${track.title}": ${videoId}`);
+            unavailableCache.delete(cacheKey);
             return videoId;
           }
 
@@ -139,8 +137,7 @@ export function useYouTubeSearch() {
             videoCache.set(cacheKey, '');
           }
           return '';
-        } catch (error) {
-          console.error('YouTube search error:', error);
+        } catch {
           return '';
         } finally {
           setIsSearching(false);

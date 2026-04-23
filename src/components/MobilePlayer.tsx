@@ -25,6 +25,7 @@ import { useTrackMediaResolver } from '@/hooks/useTrackMediaResolver';
 import { useBackgroundVerifier } from '@/hooks/useBackgroundVerifier';
 import { useCoverArtScraper } from '@/hooks/useCoverArtScraper';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
+import { useAudioController } from '@/hooks/useAudioController';
 import { resolveOwnerKey, useTrackCache, type TrackCacheRow } from '@/hooks/useTrackCache';
 import { useCsvTrackExpander } from '@/hooks/useCsvTrackExpander';
 
@@ -137,7 +138,6 @@ export function MobilePlayer() {
   const [hasUserInteracted, setHasUserInteracted] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isOptionsOpen, setIsOptionsOpen] = useState(false);
-  const [volume, setVolume] = useState(100);
   const [showReloadConfirm, setShowReloadConfirm] = useState(false);
 
   useEffect(() => {
@@ -170,6 +170,8 @@ export function MobilePlayer() {
     togglePlay,
     skipNext,
     skipPrev,
+    skipNextRelease,
+    skipPrevRelease,
     seekTo,
     skipForward,
     skipBackward,
@@ -183,6 +185,8 @@ export function MobilePlayer() {
     toggleShuffle,
   } = usePlayer(filteredTracks, persistedDislikedTracks);
 
+  const audioController = useAudioController();
+
   // When all CSV data is cleared, stop playback and return to title screen
   useEffect(() => {
     if (discogsTracks.length === 0) {
@@ -195,7 +199,6 @@ export function MobilePlayer() {
     }
   }, [discogsTracks.length, setCurrentIndex, setCurrentTime, setIsPlaying, setPlaylist]);
 
-  // Keyboard shortcuts
   useKeyboardShortcuts({
     onTogglePlay: togglePlay,
     onSkipPrev: skipPrev,
@@ -203,6 +206,11 @@ export function MobilePlayer() {
     onTogglePlaylist: () => setSidebarOpen(prev => !prev),
     onToggleShuffle: toggleShuffle,
     onToggleOptions: () => setIsOptionsOpen(prev => !prev),
+    onVolumeUp: () => audioController.setVolume(audioController.volume + 5),
+    onVolumeDown: () => audioController.setVolume(audioController.volume - 5),
+    onToggleMute: audioController.toggleMute,
+    onSkipNextRelease: skipNextRelease,
+    onSkipPrevRelease: skipPrevRelease,
   });
 
   // Background Verifier Hook — no quota guard; yt-dlp/Invidious run regardless of API quota
@@ -329,14 +337,9 @@ export function MobilePlayer() {
     [expandCsvTracks]
   );
 
-  // Handle volume change
   const handleVolumeChange = useCallback((value: number[]) => {
-    const newVolume = value[0];
-    setVolume(newVolume);
-    if (playerRef.current) {
-      playerRef.current.setVolume(newVolume);
-    }
-  }, [playerRef]);
+    audioController.setVolume(value[0]);
+  }, [audioController]);
 
   // Enforce autoplay when skipping tracks
   useEffect(() => {
@@ -419,42 +422,18 @@ export function MobilePlayer() {
     let cancelled = false;
 
     const loadTracks = async () => {
-      console.log('[fetchAllTracks] Starting to load Discogs tracks');
       try {
         const tracks = await fetchAllTracks(100);
-        console.log(`[fetchAllTracks] Fetched ${tracks.length} tracks from Discogs API`);
-        
-        if (cancelled) {
-          console.log('[fetchAllTracks] Load cancelled');
-          return;
-        }
-        
-        if (tracks.length === 0) {
-          console.log('[fetchAllTracks] No tracks returned, skipping');
-          return;
-        }
-
-        // Log first track to verify cover art
-        if (tracks.length > 0) {
-          console.log('[fetchAllTracks] First track:', {
-            title: tracks[0].title,
-            coverUrl: tracks[0].coverUrl,
-            source: tracks[0].source
-          });
-        }
-
+        if (cancelled || tracks.length === 0) return;
         const preserved = new Map(verifiedTracksRef.current.map((t) => [t.id, t.youtubeId]));
         const merged = tracks.map((track) => ({
           ...track,
           youtubeId: track.youtubeId || preserved.get(track.id) || '',
         }));
-
-        console.log(`[fetchAllTracks] Setting ${merged.length} tracks to discogsTracks state`);
         setIsPlaying(false);
         setCurrentVideoId('');
         setDiscogsTracks(merged);
-      } catch (error) {
-        console.error('[fetchAllTracks] Failed to refresh Discogs tracks', error);
+      } catch {
         setLastFetchedKey(null);
       }
     };
@@ -477,17 +456,8 @@ export function MobilePlayer() {
     if (discogsTracks.length > prevDiscogsCountRef.current && discogsTracks.length > 0) {
       prevDiscogsCountRef.current = discogsTracks.length;
       
-      console.log(`[Cover Art] Loading cover art for ${discogsTracks.length} tracks`);
-      
-      // Load cover art from database immediately, then scrape missing ones
       batchLoadCoverArtFromDb(discogsTracks, updateDiscogsTrack).then(dbLoadCount => {
-        if (dbLoadCount > 0) {
-          console.log(`[Cover Art] Loaded ${dbLoadCount} covers from database`);
-          toast.success(`Loaded ${dbLoadCount} cover arts from cache`);
-        }
-        
-        // Then start scraping for missing covers in the background
-        console.log('[Cover Art] Starting scraper for missing covers');
+        if (dbLoadCount > 0) toast.success(`Loaded ${dbLoadCount} cover arts from cache`);
         scrapeCoverArt(discogsTracks, updateDiscogsTrack, true);
       });
     }
@@ -788,7 +758,7 @@ export function MobilePlayer() {
             playerRef={playerRef}
             onStateChange={handlePlayerStateChange}
             onError={handlePlayerError}
-            onReady={() => {}}
+            onReady={() => { audioController.attachYTPlayer(playerRef.current); }}
           />
         </div>
         <MobileTitleScreen
@@ -866,7 +836,9 @@ export function MobilePlayer() {
               deleteTracks(ownerKey);
               setDiscogsTracks([]);
               setCurrentVideoId('');
+              setHasUserInteracted(false);
               cachedRowsRef.current = [];
+              cacheHydratedRef.current = null;
               hasAutoStartedRef.current = false;
               lastSearchedTrackId.current = '';
               prefetchedRef.current.clear();
@@ -917,10 +889,13 @@ export function MobilePlayer() {
 
       {/* Main content */}
       <main className="flex-1 flex flex-col px-3 sm:px-4 pt-8 pb-2 overflow-hidden min-h-0">
-        {/* Album cover — 18% larger; clamp grows with svh */}
+        {/* Album cover — width-only clamp + aspect-ratio:1 so Safari always derives
+             height from width in a single layout pass, preventing oval distortion.
+             data-vinyl-container activates the Safari max-size guard in index.css  */}
         <div
+          data-vinyl-container
           className="relative mx-auto mb-7 shrink-0"
-          style={{ width: 'clamp(212px, 33svh, 295px)', height: 'clamp(212px, 33svh, 295px)' }}
+          style={{ width: 'clamp(212px, 33svh, 295px)', aspectRatio: '1 / 1' }}
         >
           <MobileAlbumCover
             track={currentTrack}
@@ -952,7 +927,7 @@ export function MobilePlayer() {
           isLiked={currentTrack ? isTrackLiked(currentTrack.id) : false}
           isDisliked={currentTrack ? isTrackDisliked(currentTrack.id) : false}
           isShuffle={isShuffle}
-          volume={volume}
+          volume={audioController.volume}
           onTogglePlay={togglePlay}
           onPrevious={skipPrev}
           onNext={skipNext}

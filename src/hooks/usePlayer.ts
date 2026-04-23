@@ -50,7 +50,6 @@ export function usePlayer(initialTracks?: Track[], dislikedTracks?: Track[]) {
   // Update playlist when initialTracks changes
   useEffect(() => {
     if (!initialTracks || initialTracks.length === 0) {
-      console.log('[usePlayer] No initial tracks — clearing playlist');
       setPlaylist([]);
       setCurrentIndex(0);
       setCurrentTime(0);
@@ -60,63 +59,40 @@ export function usePlayer(initialTracks?: Track[], dislikedTracks?: Track[]) {
     }
 
     const filtered = filterDisliked(initialTracks);
-    
-    console.log(`[usePlayer] Initial tracks changed: ${filtered.length} tracks, isUsingMockData: ${isUsingMockData}`);
-    
+
     setPlaylist(prev => {
-      // If we're currently using mock data and real data arrives, replace completely
       if (isUsingMockData && filtered.length > 0) {
-        console.log(`[Playlist] Replacing ${prev.length} mock tracks with ${filtered.length} real tracks`);
         setIsUsingMockData(false);
-        setCurrentIndex(0); // Reset to start of new playlist
+        setCurrentIndex(0);
         return isShuffle ? shuffleTracks(filtered) : sortSequential(filtered);
       }
 
       if (prev.length === 0) {
-        console.log(`[Playlist] Initializing playlist with ${filtered.length} tracks`);
         setIsUsingMockData(false);
         return isShuffle ? shuffleTracks(filtered) : sortSequential(filtered);
       }
 
-      // Update existing tracks with new metadata (e.g. coverUrl, youtubeId)
-      // while preserving the current playlist order.
       const initialMap = new Map(filtered.map(t => [t.id, t]));
       const updatedPlaylist = prev.map(t => {
         const updated = initialMap.get(t.id);
         return updated ? updated : t;
       });
 
-      // Identify entirely new tracks to append
       const prevIds = new Set(prev.map(t => t.id));
       const newTracks = filtered.filter(t => !prevIds.has(t.id));
 
-      // CRITICAL FIX: Always remove tracks no longer in filtered set
-      // This handles both dislikes AND source filter changes
       const filteredIds = new Set(filtered.map(t => t.id));
       const cleanedPlaylist = updatedPlaylist.filter(t => filteredIds.has(t.id));
 
-      // If no new tracks, check if we should clean the playlist
       if (newTracks.length === 0) {
-        // Only clean if there's a meaningful difference
-        // Avoid cleaning for minor background updates
         const removedCount = prev.length - cleanedPlaylist.length;
-
-        if (removedCount > 0) {
-          console.log(`[Playlist] Cleaned playlist: ${prev.length} -> ${cleanedPlaylist.length} tracks (removed: ${removedCount})`);
-          console.log('[Playlist] Removed tracks:', prev.filter(t => !filteredIds.has(t.id)).map(t => t.title).slice(0, 5));
-          return cleanedPlaylist;
-        }
-
-        // No change needed - return updated metadata only
+        if (removedCount > 0) return cleanedPlaylist;
         return updatedPlaylist;
       }
 
-      // Append new tracks
-      console.log(`[Playlist] Adding ${newTracks.length} new tracks to ${cleanedPlaylist.length} existing`);
       if (isShuffle) {
         return [...cleanedPlaylist, ...shuffleTracks(newTracks)];
       } else {
-        // In sequential mode, return full filtered list in artist/album order
         return sortSequential(filtered);
       }
     });
@@ -150,20 +126,12 @@ export function usePlayer(initialTracks?: Track[], dislikedTracks?: Track[]) {
     }
   }, [playlist]);
 
-  // Validate currentIndex whenever playlist length changes
   useEffect(() => {
     if (playlist.length === 0) {
-      if (currentIndex !== 0) {
-        console.log('[usePlayer] Playlist empty, resetting index to 0');
-        setCurrentIndex(0);
-      }
+      if (currentIndex !== 0) setCurrentIndex(0);
       return;
     }
-
-    if (currentIndex >= playlist.length) {
-      console.warn(`[usePlayer] Index ${currentIndex} out of bounds for playlist length ${playlist.length}, resetting to 0`);
-      setCurrentIndex(0);
-    }
+    if (currentIndex >= playlist.length) setCurrentIndex(0);
   }, [playlist.length, currentIndex]);
 
   const toggleShuffle = useCallback(() => {
@@ -237,14 +205,9 @@ export function usePlayer(initialTracks?: Track[], dislikedTracks?: Track[]) {
   }, [isPlaying, play, pause]);
 
   const skipNext = useCallback(() => {
-    if (playlist.length === 0) {
-      console.warn('[usePlayer] Cannot skip next - playlist is empty');
-      return;
-    }
-
+    if (playlist.length === 0) return;
     setCurrentTime(0);
     setCurrentIndex((prev) => (prev + 1) % playlist.length);
-    // Force playback to start immediately
     setTimeout(() => {
       if (playerRef.current && typeof playerRef.current.playVideo === 'function') {
         playerRef.current.playVideo();
@@ -254,14 +217,9 @@ export function usePlayer(initialTracks?: Track[], dislikedTracks?: Track[]) {
   }, [playlist.length]);
 
   const skipPrev = useCallback(() => {
-    if (playlist.length === 0) {
-      console.warn('[usePlayer] Cannot skip prev - playlist is empty');
-      return;
-    }
-
+    if (playlist.length === 0) return;
     setCurrentTime(0);
     setCurrentIndex((prev) => (prev - 1 + playlist.length) % playlist.length);
-    // Force playback to start immediately
     setTimeout(() => {
       if (playerRef.current && typeof playerRef.current.playVideo === 'function') {
         playerRef.current.playVideo();
@@ -269,6 +227,39 @@ export function usePlayer(initialTracks?: Track[], dislikedTracks?: Track[]) {
       setIsPlaying(true);
     }, 100);
   }, [playlist.length]);
+
+  const skipNextRelease = useCallback(() => {
+    if (playlist.length === 0) return;
+    const currentReleaseId = playlist[currentIndex]?.discogsReleaseId;
+    const nextIdx = currentReleaseId
+      ? playlist.findIndex((t, i) => i > currentIndex && t.discogsReleaseId !== currentReleaseId)
+      : -1;
+    if (nextIdx === -1) return;
+    setCurrentTime(0);
+    setCurrentIndex(nextIdx);
+    setTimeout(() => {
+      playerRef.current?.playVideo();
+      setIsPlaying(true);
+    }, 100);
+  }, [playlist, currentIndex]);
+
+  const skipPrevRelease = useCallback(() => {
+    if (playlist.length === 0 || currentIndex === 0) return;
+    const currentReleaseId = playlist[currentIndex]?.discogsReleaseId;
+    let i = currentIndex - 1;
+    while (i >= 0 && playlist[i].discogsReleaseId === currentReleaseId) i--;
+    if (i < 0) return;
+    const prevReleaseId = playlist[i].discogsReleaseId;
+    const firstOfPrev = prevReleaseId
+      ? playlist.findIndex(t => t.discogsReleaseId === prevReleaseId)
+      : i;
+    setCurrentTime(0);
+    setCurrentIndex(firstOfPrev !== -1 ? firstOfPrev : i);
+    setTimeout(() => {
+      playerRef.current?.playVideo();
+      setIsPlaying(true);
+    }, 100);
+  }, [playlist, currentIndex]);
 
   const seekTo = useCallback((time: number) => {
     if (playerRef.current) {
@@ -327,6 +318,8 @@ export function usePlayer(initialTracks?: Track[], dislikedTracks?: Track[]) {
     togglePlay,
     skipNext,
     skipPrev,
+    skipNextRelease,
+    skipPrevRelease,
     seekTo,
     skipForward,
     skipBackward,

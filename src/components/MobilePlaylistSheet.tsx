@@ -84,12 +84,32 @@ export function MobilePlaylistSheet({
 
   return (
     <Sheet open={isOpen} onOpenChange={onClose}>
-      <SheetContent side="right" className="w-[320px] sm:w-[380px] p-0 flex flex-col">
+      <SheetContent
+        side="right"
+        className="w-[320px] sm:w-[380px] p-0 flex flex-col"
+        onOpenAutoFocus={e => e.preventDefault()}
+      >
         <SheetHeader className="p-4 border-b border-border">
           <SheetTitle className="flex items-center gap-2 text-base">
             <Music className="w-4 h-4 text-primary" />
             Up Next
           </SheetTitle>
+          {/* Track count + user info */}
+          <div className="flex items-center gap-3 pt-0.5">
+            <p className="text-xs text-muted-foreground">{playlist.length} tracks in queue</p>
+            {isDiscogsAuthenticated && discogsUsername && (
+              <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                <span className="text-success">●</span>
+                Discogs
+              </span>
+            )}
+            {isUserLoggedIn && userEmail && (
+              <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                <User className="w-3 h-3" />
+                {userEmail.split('@')[0]}
+              </span>
+            )}
+          </div>
         </SheetHeader>
 
         {/* Search + sort chips */}
@@ -118,7 +138,6 @@ export function MobilePlaylistSheet({
                 {key.charAt(0).toUpperCase() + key.slice(1)}
               </button>
             ))}
-            {/* Source filter toggles */}
             {showSourceFilter && (
               <>
                 <div className="w-px bg-border mx-0.5 self-stretch" />
@@ -220,25 +239,6 @@ export function MobilePlaylistSheet({
           </div>
         </ScrollArea>
 
-        {/* Footer with track count + user info */}
-        <div className="border-t border-border p-4 space-y-3">
-          <p className="text-xs text-muted-foreground">{playlist.length} tracks in queue</p>
-
-          {isDiscogsAuthenticated && discogsUsername && (
-            <div className="flex items-center justify-between text-sm">
-              <div className="flex items-center gap-2">
-                <span className="text-success">●</span>
-                <span className="text-muted-foreground">Connected to Discogs</span>
-              </div>
-            </div>
-          )}
-          {isUserLoggedIn && userEmail && (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <User className="w-4 h-4" />
-              <span>{userEmail.split('@')[0]}</span>
-            </div>
-          )}
-        </div>
       </SheetContent>
     </Sheet>
   );

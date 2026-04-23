@@ -12,6 +12,7 @@ import { useBackgroundVerifier } from '@/hooks/useBackgroundVerifier';
 import { useDirectAudio } from '@/hooks/useDirectAudio';
 import { useCoverArtScraper } from '@/hooks/useCoverArtScraper';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
+import { useAudioController } from '@/hooks/useAudioController';
 import { resolveOwnerKey, useTrackCache } from '@/hooks/useTrackCache';
 import { YouTubePlayer } from './YouTubePlayer';
 import { BandcampPlayer } from './BandcampPlayer';
@@ -218,6 +219,8 @@ export function Player() {
     togglePlay,
     skipNext,
     skipPrev,
+    skipNextRelease,
+    skipPrevRelease,
     seekTo,
     skipForward,
     skipBackward,
@@ -229,6 +232,8 @@ export function Player() {
     isShuffle,
     toggleShuffle,
   } = usePlayer(filteredTracks, persistedDislikedTracks);
+
+  const audioController = useAudioController();
 
   // Background Verifier Hook — no quota guard; yt-dlp/Invidious run regardless of API quota
   const { isVerifying: _isVerifying, progress: _verifyProgress, triggerImmediate } = useBackgroundVerifier({
@@ -253,12 +258,16 @@ export function Player() {
     skipNext();
   }, [currentTrack, persistDislike, removeFromPlaylist, skipNext]);
 
-  // Keyboard shortcuts
   useKeyboardShortcuts({
     onTogglePlay: togglePlay,
     onSkipPrev: skipPrev,
     onSkipNext: skipNext,
     onToggleShuffle: toggleShuffle,
+    onVolumeUp: () => audioController.setVolume(audioController.volume + 5),
+    onVolumeDown: () => audioController.setVolume(audioController.volume - 5),
+    onToggleMute: audioController.toggleMute,
+    onSkipNextRelease: skipNextRelease,
+    onSkipPrevRelease: skipPrevRelease,
   });
 
   // Show toast notification when quota is first exceeded
@@ -318,8 +327,7 @@ export function Player() {
         setIsPlaying(false);
         setCurrentVideoId('');
         setDiscogsTracks(merged);
-      } catch (error) {
-        console.error('Failed to refresh Discogs tracks', error);
+      } catch {
         setLastFetchedKey(null);
       }
     };
@@ -343,11 +351,7 @@ export function Player() {
       prevDiscogsCountRef.current = discogsTracks.length;
       
       // Load cover art from database immediately, then scrape missing ones
-      batchLoadCoverArtFromDb(discogsTracks, updateDiscogsTrack).then(dbLoadCount => {
-        if (dbLoadCount > 0) {
-          console.log(`Loaded ${dbLoadCount} covers from database`);
-        }
-        
+      batchLoadCoverArtFromDb(discogsTracks, updateDiscogsTrack).then(() => {
         // Then start scraping for missing covers in the background
         scrapeCoverArt(discogsTracks, updateDiscogsTrack, true);
       });
@@ -373,30 +377,14 @@ export function Player() {
 
   // Resolve a playable media id (Bandcamp preferred when present) when track changes
   useEffect(() => {
-    if (!currentTrack) {
-      console.log('[Audio Debug] No current track');
-      return;
-    }
+    if (!currentTrack) return;
 
-    console.log('═══════════════════════════════════════════════════════');
-    console.log('[Audio Debug] NEW TRACK:', currentTrack.title, 'by', currentTrack.artist);
-    console.log('[Audio Debug] Track ID:', currentTrack.id);
-    console.log('[Audio Debug] Track source:', currentTrack.source);
-    console.log('[Audio Debug] Track has youtubeId:', currentTrack.youtubeId);
-    console.log('[Audio Debug] Track has bandcampEmbedSrc:', currentTrack.bandcampEmbedSrc);
-    console.log('[Audio Debug] Track has playbackProvider:', currentTrack.playbackProvider);
-    console.log('[Audio Debug] Track has discogsReleaseId:', currentTrack.discogsReleaseId);
-    console.log('[Audio Debug] Current videoId state:', currentVideoId);
-    console.log('[Audio Debug] Current audioUrl state:', currentAudioUrl);
-    console.log('═══════════════════════════════════════════════════════');
-    
     // If this track was already searched, skip
     if (currentTrack.id === lastSearchedTrackId.current) return;
     lastSearchedTrackId.current = currentTrack.id;
     
     // If we already have a provider + payload, use it immediately
     if (currentTrack.playbackProvider === 'youtube' && currentTrack.youtubeId) {
-      console.log('[Audio Debug] Setting YouTube ID from track:', currentTrack.youtubeId, 'Track:', currentTrack.title);
       setCurrentVideoId(currentTrack.youtubeId);
       return;
     }
@@ -417,15 +405,8 @@ export function Player() {
         prev.map((t) => (t.id === currentTrack.id ? { ...t, playbackProvider: 'bandcamp' } : t))
       );
     } else {
-      // Log quota status when resolving
-      if (isQuotaExceeded) {
-        console.log('[Auto-Skip] Quota exceeded, using only free sources (Discogs videos, DB cache) for:', currentTrack.title);
-      }
-
       let cancelled = false;
       let timedOut = false;
-      console.log('[Media Resolution] Starting resolution for:', currentTrack.artist, '-', currentTrack.title);
-      console.log('[Media Resolution] Track has discogsReleaseId:', currentTrack.discogsReleaseId);
 
       const timeoutId = window.setTimeout(() => {
         if (cancelled) return;
@@ -440,10 +421,7 @@ export function Player() {
       resolveMediaForTrack(currentTrack).then((media) => {
         if (cancelled) return;
 
-        console.log('[Media Resolution] Result:', media);
-
         if (media.provider === 'youtube' && 'youtubeId' in media) {
-          console.log('[Audio Debug] Resolved YouTube ID:', media.youtubeId, 'for track:', currentTrack.title);
           setCurrentVideoId(media.youtubeId);
           setDiscogsTracks((prev) =>
             prev.map((t) => (t.id === currentTrack.id ? { ...t, youtubeId: media.youtubeId, playbackProvider: 'youtube', workingStatus: 'working' } : t))
@@ -462,8 +440,6 @@ export function Player() {
 
         // No media found - auto-skip
         if (!timedOut) {
-          const quotaMsg = isQuotaExceeded ? ' (quota exceeded, only free sources checked)' : '';
-          console.log(`[Auto-Skip] No playable media found for: ${currentTrack.title}${quotaMsg} - skipping`);
           setDiscogsTracks((prev) =>
             prev.map((t) => (t.id === currentTrack.id ? { ...t, workingStatus: 'non_working' } : t))
           );
@@ -483,13 +459,10 @@ export function Player() {
   // Fetch direct audio URL whenever currentVideoId changes
   useEffect(() => {
     if (!currentVideoId) {
-      console.log('[DirectAudio] No video ID, clearing audio URL');
       setCurrentAudioUrl('');
       setAudioSource(null);
       return;
     }
-
-    console.log('[DirectAudio] Video ID changed:', currentVideoId, '- fetching audio URL');
 
     let cancelled = false;
 
@@ -497,18 +470,14 @@ export function Player() {
       if (cancelled) return;
 
       if (result) {
-        console.log('[DirectAudio] ✓ Got direct audio URL from:', result.source);
-        console.log('[DirectAudio] Audio URL:', result.audioUrl.substring(0, 100) + '...');
         setCurrentAudioUrl(result.audioUrl);
         setAudioSource(result.source);
       } else {
-        console.log('[DirectAudio] ✗ No direct audio URL, will use YouTube iframe');
         setCurrentAudioUrl('');
         setAudioSource(null);
       }
-    }).catch(err => {
+    }).catch(() => {
       if (cancelled) return;
-      console.error('[DirectAudio] Error fetching audio URL:', err);
       setCurrentAudioUrl('');
       setAudioSource(null);
     });
@@ -544,7 +513,6 @@ export function Player() {
     // Discogs tracks: use full media resolver (checks release videos, Bandcamp, etc.)
     const withReleaseId = upcoming.filter(t => !!t.discogsReleaseId);
     if (withReleaseId.length > 0) {
-      console.log('Pre-fetching media candidates for', withReleaseId.length, 'Discogs tracks');
       prefetchForTracks(withReleaseId);
     }
 
@@ -576,16 +544,8 @@ export function Player() {
     async (code: number) => {
       if (!currentTrack) return;
 
-      // Error codes:
-      // 2: Invalid parameter value
-      // 5: HTML5 player error
-      // 100: Video not found or removed
-      // 101/150: Embedding disabled / not allowed
-      console.warn('YouTube player error:', code, 'for track:', currentTrack.title);
-
       // For 100 (not found) or 2/5 (invalid/player error), skip immediately
       if (code === 100 || code === 2 || code === 5) {
-        console.warn('Video unavailable (code', code, '), skipping track:', currentTrack.title);
         setDiscogsTracks((prev) =>
           prev.map((t) => (t.id === currentTrack.id ? { ...t, workingStatus: 'non_working' } : t))
         );
@@ -598,7 +558,6 @@ export function Player() {
 
       // Avoid infinite loops per track
       if (fallbackAttemptedRef.current.has(currentTrack.id)) {
-        console.warn('Embed blocked and fallback already attempted, skipping track:', currentTrack.title);
         setDiscogsTracks((prev) =>
           prev.map((t) => (t.id === currentTrack.id ? { ...t, workingStatus: 'non_working' } : t))
         );
@@ -607,7 +566,6 @@ export function Player() {
       }
 
       fallbackAttemptedRef.current.add(currentTrack.id);
-      console.warn('Embed blocked (code', code, ') - trying an alternative for:', currentTrack.title);
 
       const preferDifferentFromYoutubeId = currentVideoId || currentTrack.youtubeId;
       const alt = await resolveMediaForTrack(currentTrack, { preferDifferentFromYoutubeId });
@@ -950,9 +908,10 @@ export function Player() {
               ref={audioPlayerRef}
               audioUrl={currentAudioUrl}
               isPlaying={isPlaying}
+              volume={audioController.volume}
+              muted={audioController.isMuted}
               onEnded={skipNext}
               onError={() => {
-                console.log('[DirectAudio] Playback error, falling back to YouTube iframe');
                 setCurrentAudioUrl('');
                 setAudioSource(null);
               }}
@@ -967,7 +926,7 @@ export function Player() {
               playerRef={playerRef}
               onStateChange={handlePlayerStateChange}
               onError={handlePlayerError}
-              onReady={() => {}}
+              onReady={() => { audioController.attachYTPlayer(playerRef.current); }}
             />
           )}
         </div>

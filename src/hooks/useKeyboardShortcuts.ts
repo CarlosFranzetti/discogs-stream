@@ -7,6 +7,11 @@ interface KeyboardShortcutsProps {
   onTogglePlaylist?: () => void;
   onToggleShuffle?: () => void;
   onToggleOptions?: () => void;
+  onVolumeUp?: () => void;
+  onVolumeDown?: () => void;
+  onToggleMute?: () => void;
+  onSkipNextRelease?: () => void;
+  onSkipPrevRelease?: () => void;
 }
 
 export function useKeyboardShortcuts({
@@ -16,28 +21,51 @@ export function useKeyboardShortcuts({
   onTogglePlaylist,
   onToggleShuffle,
   onToggleOptions,
+  onVolumeUp,
+  onVolumeDown,
+  onToggleMute,
+  onSkipNextRelease,
+  onSkipPrevRelease,
 }: KeyboardShortcutsProps) {
   useEffect(() => {
-    const handleKeyPress = (e: KeyboardEvent) => {
-      // Don't trigger if typing in input/textarea
+    const handleKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
       if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
 
       switch (e.key) {
         case ' ':
-        case 'Space':
           e.preventDefault();
           onTogglePlay();
           break;
-        case ',':
-        case '<':
+        case 'ArrowLeft':
           e.preventDefault();
           onSkipPrev();
           break;
-        case '.':
-        case '>':
+        case 'ArrowRight':
           e.preventDefault();
           onSkipNext();
+          break;
+        case 'ArrowUp':
+          e.preventDefault();
+          onSkipNextRelease?.();
+          break;
+        case 'ArrowDown':
+          e.preventDefault();
+          onSkipPrevRelease?.();
+          break;
+        case '+':
+        case '=':
+          e.preventDefault();
+          onVolumeUp?.();
+          break;
+        case '-':
+          e.preventDefault();
+          onVolumeDown?.();
+          break;
+        case 'm':
+        case 'M':
+          e.preventDefault();
+          onToggleMute?.();
           break;
         case 'p':
         case 'P':
@@ -57,7 +85,11 @@ export function useKeyboardShortcuts({
       }
     };
 
-    window.addEventListener('keydown', handleKeyPress);
-    return () => window.removeEventListener('keydown', handleKeyPress);
-  }, [onTogglePlay, onSkipPrev, onSkipNext, onTogglePlaylist, onToggleShuffle, onToggleOptions]);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [
+    onTogglePlay, onSkipPrev, onSkipNext, onTogglePlaylist,
+    onToggleShuffle, onToggleOptions, onVolumeUp, onVolumeDown,
+    onToggleMute, onSkipNextRelease, onSkipPrevRelease,
+  ]);
 }
