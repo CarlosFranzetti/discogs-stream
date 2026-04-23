@@ -87,32 +87,30 @@ export function MobilePlaylistSheet({
       <SheetContent
         side="right"
         className="w-[320px] sm:w-[380px] p-0 flex flex-col"
-        onOpenAutoFocus={(e) => e.preventDefault()}
+        onOpenAutoFocus={e => e.preventDefault()}
       >
         <SheetHeader className="p-4 border-b border-border">
           <SheetTitle className="flex items-center gap-2 text-base">
             <Music className="w-4 h-4 text-primary" />
             Up Next
           </SheetTitle>
+          {/* Track count + user info */}
+          <div className="flex items-center gap-3 pt-0.5">
+            <p className="text-xs text-muted-foreground">{playlist.length} tracks in queue</p>
+            {isDiscogsAuthenticated && discogsUsername && (
+              <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                <span className="text-success">●</span>
+                Discogs
+              </span>
+            )}
+            {isUserLoggedIn && userEmail && (
+              <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                <User className="w-3 h-3" />
+                {userEmail.split('@')[0]}
+              </span>
+            )}
+          </div>
         </SheetHeader>
-
-        {/* Track count + user info (moved to top) */}
-        <div className="border-b border-border px-4 py-2.5 space-y-1">
-          <p className="text-xs text-muted-foreground">{playlist.length} tracks in queue</p>
-
-          {isDiscogsAuthenticated && discogsUsername && (
-            <div className="flex items-center gap-2 text-sm">
-              <span className="text-success">●</span>
-              <span className="text-muted-foreground">Connected to Discogs</span>
-            </div>
-          )}
-          {isUserLoggedIn && userEmail && (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <User className="w-4 h-4" />
-              <span>{userEmail.split('@')[0]}</span>
-            </div>
-          )}
-        </div>
 
         <ScrollArea className="flex-1">
           <div className={isTight ? 'py-1' : 'py-2'}>

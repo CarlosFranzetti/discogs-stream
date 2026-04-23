@@ -101,8 +101,6 @@ export function useDiscogsData(credentials: DiscogsCredentials | null) {
     const cleanArtistName = artistName.replace(/\s*\(\d+\)$/, '');
     
     const coverUrl = info.cover_image || info.thumb || '/placeholder.svg';
-    console.log(`[Cover Art - Basic] Release ${info.id} (${info.title}): ${coverUrl}`);
-    
     return {
       id: `${source}-${release.id}`,
       title: info.title,
@@ -144,13 +142,8 @@ export function useDiscogsData(credentials: DiscogsCredentials | null) {
     let details: DiscogsReleaseDetails | null = null;
     try {
       details = (await fetchRelease(releaseId)) as DiscogsReleaseDetails;
-      console.log(`[Release Details] Release ${releaseId} fetched successfully`);
-      console.log(`  - Has details object: ${!!details}`);
-      console.log(`  - Has images array: ${!!details?.images}`);
-      console.log(`  - Images length: ${details?.images?.length || 0}`);
-      console.log(`  - Full details keys:`, details ? Object.keys(details) : 'null');
-    } catch (error) {
-      console.error(`[Release Details] Failed to fetch release ${releaseId}:`, error);
+    } catch {
+      // details stays null; tracklist will be empty
     }
     
     const tracklist = Array.isArray(details?.tracklist) ? details.tracklist : [];
@@ -166,13 +159,6 @@ export function useDiscogsData(credentials: DiscogsCredentials | null) {
     const basicThumb = info.thumb;
     const coverUrl = detailsImage || detailsThumb || basicCover || basicThumb || '/placeholder.svg';
     const country = details?.country;
-    
-    console.log(`[Cover Art] Release ${releaseId} (${album}):`);
-    console.log(`  - details.images[0].uri: ${detailsImage || 'N/A'}`);
-    console.log(`  - details.thumb: ${detailsThumb || 'N/A'}`);
-    console.log(`  - info.cover_image: ${basicCover || 'N/A'}`);
-    console.log(`  - info.thumb: ${basicThumb || 'N/A'}`);
-    console.log(`  - FINAL coverUrl: ${coverUrl}`);
 
     const tracks: Track[] = [];
     let idx = 0;
@@ -209,9 +195,6 @@ export function useDiscogsData(credentials: DiscogsCredentials | null) {
         source,
       };
       
-      if (idx === 0) {
-        console.log(`[Track Created] ${title} - coverUrl: ${coverUrl}`);
-      }
       
       tracks.push(trackObj);
       idx += 1;
@@ -261,13 +244,9 @@ export function useDiscogsData(credentials: DiscogsCredentials | null) {
     setError(null);
     
     try {
-      const data = await callApi('orders');
-      // Purchase history would require processing order items
-      // For now, return empty as this requires additional API calls per order
-      console.log('Orders data:', data);
+      await callApi('orders');
       return [];
-    } catch (err) {
-      console.log('Purchase history not available:', err);
+    } catch {
       return [];
     } finally {
       setIsLoading(false);

@@ -106,8 +106,6 @@ export function useBackgroundVerifier({
       processingRef.current = true;
 
       try {
-        console.log(`[Verifier] Processing: ${track.artist} - ${track.title}`);
-
         const updatedTrack = { ...track };
         let changed = false;
         let videoId = updatedTrack.youtubeId || '';
@@ -117,7 +115,6 @@ export function useBackgroundVerifier({
           const media = await resolveMediaForTrack(track);
           if (media.provider === 'youtube' && media.youtubeId) {
             videoId = media.youtubeId;
-            console.log(`[Verifier] Resolved via Discogs/Cache: ${videoId}`);
             if (media.youtubeCandidates?.length) {
               updatedTrack.youtubeCandidates = media.youtubeCandidates;
               changed = true;
@@ -167,8 +164,8 @@ export function useBackgroundVerifier({
         verifiedIds.current.add(track.id);
         setProgress(prev => ({ ...prev, verified: prev.verified + 1 }));
 
-      } catch (error) {
-        console.error('[Verifier] Error:', error);
+      } catch {
+        // silently continue on resolution errors
       } finally {
         processingRef.current = false;
         // Reduced delay — slow searches self-throttle via their own timeouts

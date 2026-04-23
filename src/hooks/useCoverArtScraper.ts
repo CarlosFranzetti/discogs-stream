@@ -27,17 +27,14 @@ export function useCoverArtScraper() {
         .maybeSingle();
 
       if (error) {
-        // Silently ignore table not found errors - means migration not applied yet
         if (error.code === 'PGRST205' || error.message?.includes('does not exist')) {
           return null;
         }
-        console.warn(`Error fetching cover art from DB for release ${releaseId}:`, error.message);
         return null;
       }
 
       return data?.cover_url || data?.thumb_url || null;
-    } catch (error) {
-      console.warn(`Error querying cover art DB for release ${releaseId}`);
+    } catch {
       return null;
     }
   }, []);
@@ -59,30 +56,17 @@ export function useCoverArtScraper() {
         .in('release_id', releaseIds);
 
       if (error) {
-        // Silently ignore table not found errors
-        if (error.code === 'PGRST205' || error.message?.includes('does not exist')) {
-          console.log('Cover art cache table not found - will scrape from Discogs');
-          return 0;
-        }
-        console.warn('Error batch fetching cover art from DB:', error.message);
         return 0;
       }
 
-      if (!data || data.length === 0) {
-        console.log('No cached cover art found in database');
-        return 0;
-      }
+      if (!data || data.length === 0) return 0;
 
-      // Create a map of release_id -> cover_url
       const coverMap = new Map<number, string>();
       data.forEach(row => {
         const url = row.cover_url || row.thumb_url;
-        if (url) {
-          coverMap.set(row.release_id, url);
-        }
+        if (url) coverMap.set(row.release_id, url);
       });
 
-      // Update tracks that have cover art in DB
       let updateCount = 0;
       tracks.forEach(track => {
         if (track.discogsReleaseId && coverMap.has(track.discogsReleaseId)) {
@@ -92,12 +76,8 @@ export function useCoverArtScraper() {
         }
       });
 
-      if (updateCount > 0) {
-        console.log(`Loaded ${updateCount} cover arts from database`);
-      }
       return updateCount;
-    } catch (error) {
-      console.warn('Error batch loading cover art');
+    } catch {
       return 0;
     }
   }, []);
@@ -108,7 +88,7 @@ export function useCoverArtScraper() {
     thumbUrl?: string
   ): Promise<void> => {
     try {
-      const { error } = await supabase
+      await supabase
         .from('release_cover_art')
         .upsert({
           release_id: releaseId,
@@ -116,51 +96,30 @@ export function useCoverArtScraper() {
           thumb_url: thumbUrl,
           updated_at: new Date().toISOString(),
         });
-
-      if (error) {
-        // Silently ignore table not found errors
-        if (error.code !== 'PGRST205' && !error.message?.includes('does not exist')) {
-          console.warn(`Error storing cover art in DB for release ${releaseId}:`, error.message);
-        }
-      }
-    } catch (error) {
+    } catch {
       // Silently fail - caching is optional
     }
   }, []);
 
   const fetchCoverArt = useCallback(async (releaseId: number): Promise<string | null> => {
-    // First, check if we have it in the database
     const cachedUrl = await getCoverArtFromDb(releaseId);
-    if (cachedUrl) {
-      console.log(`Cover art found in DB for release ${releaseId}`);
-      return cachedUrl;
-    }
+    if (cachedUrl) return cachedUrl;
 
-    // If not in DB, fetch from Discogs API using Supabase client for auth
     try {
       const { data, error } = await supabase.functions.invoke('discogs-public', {
         body: { release_id: releaseId },
       });
 
-      if (error) {
-        console.warn(`Failed to fetch cover art for release ${releaseId}:`, error.message);
-        return null;
-      }
+      if (error) return null;
 
       const coverUrl = data?.cover_image || data?.thumb;
-
       if (coverUrl) {
-        // Store in database for future use
         await storeCoverArtInDb(releaseId, coverUrl, data.thumb);
-        console.log(`Cover art fetched and stored for release ${releaseId}`);
       }
 
       return coverUrl || null;
     } catch (error) {
-      if (error instanceof Error && error.name === 'AbortError') {
-        return null;
-      }
-      console.error(`Error fetching cover art for release ${releaseId}:`, error);
+      if (error instanceof Error && error.name === 'AbortError') return null;
       return null;
     }
   }, [getCoverArtFromDb, storeCoverArtInDb]);
@@ -171,40 +130,25 @@ export function useCoverArtScraper() {
       onTrackUpdate: (track: Track) => void,
       startFromFirst: boolean = true
     ) => {
-      if (isScrapingRef.current) {
-        console.log('Scraping already in progress');
-        return;
-      }
+      if (isScrapingRef.current) return;
 
       const tracksToScrape = tracks.filter(
         (t) => t.discogsReleaseId && (!t.coverUrl || t.coverUrl === '/placeholder.svg')
       );
 
-      if (tracksToScrape.length === 0) {
-        console.log('No tracks need cover art scraping');
-        return;
-      }
+      if (tracksToScrape.length === 0) return;
 
       isScrapingRef.current = true;
       setIsScraping(true);
       abortControllerRef.current = new AbortController();
 
-      setProgress({
-        completed: 0,
-        total: tracksToScrape.length,
-        currentTrack: null,
-      });
+      setProgress({ completed: 0, total: tracksToScrape.length, currentTrack: null });
 
-      console.log(`Starting cover art scraping for ${tracksToScrape.length} tracks`);
       let successCount = 0;
 
-      // Process first track immediately if requested
       if (startFromFirst && tracksToScrape.length > 0) {
         const firstTrack = tracksToScrape[0];
-        setProgress((prev) => ({
-          ...prev,
-          currentTrack: firstTrack.title,
-        }));
+        setProgress((prev) => ({ ...prev, currentTrack: firstTrack.title }));
 
         const coverUrl = await fetchCoverArt(firstTrack.discogsReleaseId!);
         if (coverUrl) {
@@ -212,26 +156,15 @@ export function useCoverArtScraper() {
           successCount++;
         }
 
-        setProgress((prev) => ({
-          ...prev,
-          completed: 1,
-          currentTrack: null,
-        }));
+        setProgress((prev) => ({ ...prev, completed: 1, currentTrack: null }));
       }
 
-      // Process remaining tracks in background with rate limiting
       const startIndex = startFromFirst ? 1 : 0;
       for (let i = startIndex; i < tracksToScrape.length; i++) {
-        if (!isScrapingRef.current) {
-          console.log('Scraping aborted');
-          break;
-        }
+        if (!isScrapingRef.current) break;
 
         const track = tracksToScrape[i];
-        setProgress((prev) => ({
-          ...prev,
-          currentTrack: track.title,
-        }));
+        setProgress((prev) => ({ ...prev, currentTrack: track.title }));
 
         const coverUrl = await fetchCoverArt(track.discogsReleaseId!);
         if (coverUrl) {
@@ -239,13 +172,8 @@ export function useCoverArtScraper() {
           successCount++;
         }
 
-        setProgress((prev) => ({
-          ...prev,
-          completed: i + 1,
-          currentTrack: null,
-        }));
+        setProgress((prev) => ({ ...prev, completed: i + 1, currentTrack: null }));
 
-        // Rate limiting: wait 1 second between requests to avoid hitting Discogs rate limits
         if (i < tracksToScrape.length - 1) {
           await new Promise((resolve) => setTimeout(resolve, 1000));
         }
@@ -253,8 +181,6 @@ export function useCoverArtScraper() {
 
       isScrapingRef.current = false;
       setIsScraping(false);
-
-      console.log(`Cover art scraping completed: ${successCount}/${tracksToScrape.length} covers found`);
     },
     [fetchCoverArt]
   );
@@ -265,14 +191,9 @@ export function useCoverArtScraper() {
     }
     isScrapingRef.current = false;
     setIsScraping(false);
-    setProgress({
-      completed: 0,
-      total: 0,
-      currentTrack: null,
-    });
+    setProgress({ completed: 0, total: 0, currentTrack: null });
   }, []);
 
-  // Cleanup on unmount
   useEffect(() => {
     return () => {
       if (abortControllerRef.current) {

@@ -10,8 +10,6 @@ interface AlbumArtProps {
 export function AlbumArt({ track, isPlaying, onClick }: AlbumArtProps) {
   const hasValidCover = track.coverUrl && track.coverUrl !== '/placeholder.svg' && !track.coverUrl.includes('placeholder');
   
-  console.log(`[AlbumArt] Track: ${track.title}, coverUrl: ${track.coverUrl}, hasValidCover: ${hasValidCover}`);
-  
   return (
     <div
       className="flex items-center justify-center h-full cursor-pointer"

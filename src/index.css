@@ -224,6 +224,17 @@
   }
 }
 
+/* ─── Safari vinyl fix ─────────────────────────────────────────────────────
+   Force the browser to treat the vinyl wrapper as a true square even during
+   mid-frame resize reflows. Using max-width = width prevents Safari from
+   ever stretching the box horizontally while aspect-ratio re-calculates.    */
+@supports (-webkit-appearance: none) {
+  [data-vinyl-container] {
+    max-width: var(--vinyl-size, 295px);
+    max-height: var(--vinyl-size, 295px);
+  }
+}
+
 @layer utilities {
   .bg-amber-glow {
     background-color: hsl(var(--amber-glow));

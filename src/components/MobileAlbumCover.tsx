@@ -53,7 +53,7 @@ export function MobileAlbumCover({ track, isPlaying, onClick }: MobileAlbumCover
 
   if (!track) {
     return (
-      <div className="relative w-full aspect-square">
+      <div className="relative w-full h-full">
         <div className="absolute inset-0 rounded-full bg-vinyl-black vinyl-texture" />
       </div>
     );
@@ -65,7 +65,7 @@ export function MobileAlbumCover({ track, isPlaying, onClick }: MobileAlbumCover
 
   return (
     <div
-      className="relative w-full aspect-square cursor-pointer group"
+      className="relative w-full h-full cursor-pointer group"
       onClick={onClick}
     >
       {/* Outer glow — rainbow or theme pulse */}
