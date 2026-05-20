@@ -3,9 +3,8 @@ import { Track } from '@/types/track';
 import { parseDiscogsDurationToSeconds } from '@/lib/discogs';
 
 interface DiscogsCredentials {
-  access_token: string;
-  access_token_secret: string;
   username: string;
+  session: string;
 }
 
 interface DiscogsRelease {
@@ -78,8 +77,7 @@ export function useDiscogsData(credentials: DiscogsCredentials | null) {
         },
         body: JSON.stringify({
           action,
-          access_token: credentials.access_token,
-          access_token_secret: credentials.access_token_secret,
+          session: credentials.session,
           username: credentials.username,
           params,
         }),

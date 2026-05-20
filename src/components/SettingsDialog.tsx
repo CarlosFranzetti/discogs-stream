@@ -21,6 +21,26 @@ interface SettingsDialogProps {
   onWantlistCSVUpload?: (file: File) => Promise<void>;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
+  // Phase 3 — Discogs sync surface (REQ-C6).
+  isSyncing?: boolean;
+  lastSyncAt?: string | null;
+  lastRescanAt?: string | null;
+  syncError?: string | null;
+  onSyncNow?: () => void;
+}
+
+function formatRelative(iso: string | null | undefined): string {
+  if (!iso) return 'never';
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return 'never';
+  const diff = Date.now() - t;
+  const min = Math.round(diff / 60000);
+  if (min < 1) return 'just now';
+  if (min < 60) return `${min} min ago`;
+  const hr = Math.round(min / 60);
+  if (hr < 24) return `${hr} h ago`;
+  const day = Math.round(hr / 24);
+  return `${day} d ago`;
 }
 
 export function SettingsDialog({
@@ -34,6 +54,11 @@ export function SettingsDialog({
   onWantlistCSVUpload,
   open,
   onOpenChange,
+  isSyncing = false,
+  lastSyncAt = null,
+  lastRescanAt = null,
+  syncError = null,
+  onSyncNow,
 }: SettingsDialogProps) {
   const { theme, setTheme } = useTheme();
   const { settings, updateSetting } = useSettings();
@@ -245,13 +270,36 @@ export function SettingsDialog({
               <p className="text-[11px] text-muted-foreground leading-snug">CSV import is recommended. OAuth is experimental.</p>
             </div>
             {isDiscogsAuthenticated && discogsUsername ? (
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Disc3 className="w-3.5 h-3.5 text-primary" />
-                  <span className="text-sm font-medium">{discogsUsername}</span>
-                  <span className="text-xs text-muted-foreground">connected</span>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Disc3 className="w-3.5 h-3.5 text-primary" />
+                    <span className="text-sm font-medium">{discogsUsername}</span>
+                    <span className="text-xs text-muted-foreground">connected</span>
+                  </div>
+                  <Button variant="outline" size="sm" onClick={onDisconnectDiscogs} className="text-xs h-7">Disconnect</Button>
                 </div>
-                <Button variant="outline" size="sm" onClick={onDisconnectDiscogs} className="text-xs h-7">Disconnect</Button>
+                <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] text-muted-foreground/80 px-0.5">
+                  <span>Last sync</span>
+                  <span className="text-right text-foreground/70">{formatRelative(lastSyncAt)}</span>
+                  <span>Last rescan</span>
+                  <span className="text-right text-foreground/70">{formatRelative(lastRescanAt)}</span>
+                </div>
+                {syncError && (
+                  <div className="rounded-md border border-destructive/30 bg-destructive/5 px-2 py-1 text-[11px] text-destructive/90">
+                    Sync error: {syncError}
+                  </div>
+                )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full gap-2 text-xs h-8"
+                  onClick={onSyncNow}
+                  disabled={isSyncing || !onSyncNow}
+                >
+                  <RefreshCw className={`w-3 h-3 ${isSyncing ? 'animate-spin' : ''}`} />
+                  {isSyncing ? 'Syncing…' : 'Re-sync now'}
+                </Button>
               </div>
             ) : (
               <Button variant="outline" size="sm" className="w-full gap-2 text-xs h-8" onClick={onConnectDiscogs}>

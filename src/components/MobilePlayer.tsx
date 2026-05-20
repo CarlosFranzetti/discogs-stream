@@ -28,6 +28,7 @@ import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import { useAudioController } from '@/hooks/useAudioController';
 import { resolveOwnerKey, useTrackCache, type TrackCacheRow } from '@/hooks/useTrackCache';
 import { useCsvTrackExpander } from '@/hooks/useCsvTrackExpander';
+import { useDiscogsSync } from '@/hooks/useDiscogsSync';
 
 export function MobilePlayer() {
   const navigate = useNavigate();
@@ -53,7 +54,7 @@ export function MobilePlayer() {
     logout
   } = useDiscogsAuth();
 
-  const { isLoading: isLoadingData, error: dataError, fetchAllTracks, fetchRelease } = useDiscogsData(credentials);
+  const { isLoading: isLoadingData, error: dataError, fetchRelease } = useDiscogsData(credentials);
   const { resolveMediaForTrack } = useTrackMediaResolver({
     fetchRelease,
     discogsUsername: credentials?.username,
@@ -128,7 +129,6 @@ export function MobilePlayer() {
      setVerifiedTracks(discogsTracks);
   }, [discogsTracks]);
 
-  const [lastFetchedKey, setLastFetchedKey] = useState<string | null>(null);
   const cacheHydratedRef = useRef<string | null>(null);
   const [currentVideoId, setCurrentVideoId] = useState<string>('');
   const lastSearchedTrackId = useRef<string>('');
@@ -229,6 +229,88 @@ export function MobilePlayer() {
   const ownerKey = useMemo(() => resolveOwnerKey(credentials?.username), [credentials?.username]);
   const cachedRowsRef = useRef<TrackCacheRow[]>([]);
   const syncTimerRef = useRef<number | null>(null);
+
+  // Phase 3 — Build release-level Track[] from Discogs raw API entries.
+  // The sync writes release-level placeholders to the cache; the background
+  // verifier + track-expansion path later resolves them to per-track entries.
+  const releasesToTracks = useCallback(
+    (raw: unknown[], source: 'collection' | 'wantlist'): Track[] => {
+      const out: Track[] = [];
+      for (const entry of raw) {
+        const e = entry as { id?: number; basic_information?: Record<string, unknown> };
+        const info = (e?.basic_information || {}) as Record<string, unknown>;
+        const id = (info?.id as number) ?? e?.id;
+        if (!id) continue;
+        const artistsArr = (info.artists as Array<{ name?: string }>) || [];
+        const labelsArr = (info.labels as Array<{ name?: string }>) || [];
+        const genres = (info.genres as string[]) || [];
+        const styles = (info.styles as string[]) || [];
+        const artistName = (artistsArr[0]?.name || 'Unknown Artist').replace(/\s*\(\d+\)$/, '');
+        const cover = (info.cover_image as string) || (info.thumb as string) || '/placeholder.svg';
+        out.push({
+          id: `${source}-${id}`,
+          title: (info.title as string) || 'Unknown',
+          artist: artistName,
+          album: (info.title as string) || 'Unknown',
+          year: (info.year as number) || 0,
+          genre: genres[0] || styles[0] || 'Unknown',
+          label: labelsArr[0]?.name || 'Unknown',
+          duration: 240,
+          coverUrl: cover,
+          coverUrls: cover ? [cover] : [],
+          youtubeId: '',
+          youtubeCandidates: [],
+          discogsReleaseId: id,
+          country: undefined,
+          workingStatus: 'pending',
+          source,
+        });
+      }
+      return out;
+    },
+    []
+  );
+
+  const onSyncComplete = useCallback(async () => {
+    if (!ownerKey) return;
+    // Reload from cache so newly-synced tracks (and soft-deleted status flips) are
+    // reflected in the playlist immediately.
+    const rows = await loadTracks(ownerKey);
+    cachedRowsRef.current = rows;
+    if (rows.length === 0) return;
+    setDiscogsTracks((prev) => {
+      if (prev.length === 0) {
+        return rows.map((row) => ({
+          id: row.track_id,
+          title: row.title,
+          artist: row.artist,
+          album: row.album || row.title,
+          year: row.year || 0,
+          genre: row.genre || 'Unknown',
+          label: row.label || 'Unknown',
+          duration: row.duration && row.duration > 0 ? row.duration : 240,
+          coverUrl: row.cover1 || '/placeholder.svg',
+          coverUrls: [row.cover1, row.cover2, row.cover3, row.cover4].filter(Boolean) as string[],
+          youtubeId: row.youtube1 || '',
+          youtubeCandidates: [row.youtube1, row.youtube2].filter(Boolean) as string[],
+          discogsReleaseId: row.release_id || undefined,
+          discogsTrackPosition: row.track_position || undefined,
+          country: row.country || undefined,
+          workingStatus: row.working_status,
+          source: row.source,
+        }));
+      }
+      return applyCachedMetadata(prev, rows);
+    });
+  }, [ownerKey, loadTracks, applyCachedMetadata]);
+
+  const discogsSync = useDiscogsSync({
+    username: credentials?.username || null,
+    session: credentials?.session || null,
+    ownerKey,
+    releasesToTracks,
+    onSyncResult: () => { onSyncComplete(); },
+  });
 
   // Load cached metadata from database for faster future loads.
   useEffect(() => {
@@ -405,45 +487,10 @@ export function MobilePlayer() {
     }
   }, [isCacheReady]);
 
-  useEffect(() => {
-    const username = credentials?.username;
-    const fetchKey = username ? `discogs:${username}` : null;
-
-    if (!isAuthenticated || !fetchKey) {
-      if (!fetchKey) {
-        setLastFetchedKey(null);
-      }
-      return;
-    }
-
-    if (lastFetchedKey === fetchKey) return;
-    setLastFetchedKey(fetchKey);
-
-    let cancelled = false;
-
-    const loadTracks = async () => {
-      try {
-        const tracks = await fetchAllTracks(100);
-        if (cancelled || tracks.length === 0) return;
-        const preserved = new Map(verifiedTracksRef.current.map((t) => [t.id, t.youtubeId]));
-        const merged = tracks.map((track) => ({
-          ...track,
-          youtubeId: track.youtubeId || preserved.get(track.id) || '',
-        }));
-        setIsPlaying(false);
-        setCurrentVideoId('');
-        setDiscogsTracks(merged);
-      } catch {
-        setLastFetchedKey(null);
-      }
-    };
-
-    loadTracks();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [isAuthenticated, credentials?.username, fetchAllTracks, lastFetchedKey, setIsPlaying]);
+  // Phase 3: useDiscogsSync owns auth-driven loading. It pulls cache, runs a
+  // diff sync against Discogs (paginated, page-by-page upsert), soft-deletes
+  // removed releases, and onSyncResult triggers a cache reload via onSyncComplete.
+  // The legacy fetchAllTracks branch is no longer needed for OAuth users.
 
   useEffect(() => {
     prefetchedRef.current.clear();
@@ -851,6 +898,11 @@ export function MobilePlayer() {
             onDisconnectDiscogs={logout}
             onCollectionCSVUpload={handleCollectionCSVUpload}
             onWantlistCSVUpload={handleWantlistCSVUpload}
+            isSyncing={discogsSync.isSyncing}
+            lastSyncAt={discogsSync.lastSyncAt}
+            lastRescanAt={discogsSync.lastRescanAt}
+            syncError={discogsSync.error}
+            onSyncNow={discogsSync.syncNow}
           />
           <button
             onClick={() => setSidebarOpen(prev => !prev)}

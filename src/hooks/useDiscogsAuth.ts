@@ -1,62 +1,75 @@
 import { useState, useCallback, useEffect } from 'react';
-import { supabase } from '@/integrations/supabase/client';
 
-interface DiscogsCredentials {
-  access_token: string;
-  access_token_secret: string;
+/**
+ * Phase 3 (Discogs OAuth Diff-Sync):
+ *   - Discogs access tokens NEVER live in localStorage. They are persisted
+ *     server-side in the `user_tokens` table and accessed only via the
+ *     `discogs-auth` / `discogs-api` edge functions.
+ *   - The client stores only the Discogs `username` and an opaque HMAC-signed
+ *     `session` token. The session token authenticates subsequent API calls.
+ */
+
+export interface DiscogsSession {
   username: string;
+  session: string;
 }
 
-const STORAGE_KEY = 'discogs_credentials';
+const SESSION_KEY = 'discogs_session_v2';
+const LEGACY_CREDS_KEY = 'discogs_credentials';
+
+function readSession(): DiscogsSession | null {
+  try {
+    const raw = localStorage.getItem(SESSION_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed.username === 'string' && typeof parsed.session === 'string') {
+      return parsed as DiscogsSession;
+    }
+    return null;
+  } catch {
+    localStorage.removeItem(SESSION_KEY);
+    return null;
+  }
+}
+
+function writeSession(session: DiscogsSession | null) {
+  if (!session) {
+    localStorage.removeItem(SESSION_KEY);
+    return;
+  }
+  localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+}
 
 export function useDiscogsAuth() {
-  const [credentials, setCredentials] = useState<DiscogsCredentials | null>(() => {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (!stored) return null;
-    try {
-      return JSON.parse(stored);
-    } catch (e) {
-      console.error('Failed to parse stored credentials', e);
-      localStorage.removeItem(STORAGE_KEY);
-      return null;
+  const [session, setSession] = useState<DiscogsSession | null>(() => {
+    if (typeof window !== 'undefined') {
+      // One-shot wipe of legacy localStorage that previously held raw OAuth tokens.
+      localStorage.removeItem(LEGACY_CREDS_KEY);
     }
+    return readSession();
   });
   const [isAuthenticating, setIsAuthenticating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const isAuthenticated = !!credentials;
+  const isAuthenticated = !!session;
 
   const startAuth = useCallback(async () => {
     setIsAuthenticating(true);
     setError(null);
-    
+
     try {
       const callbackUrl = `${window.location.origin}/?discogs_callback=true`;
-      
+
       const response = await fetch(
         `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/discogs-auth?action=request_token&callback_url=${encodeURIComponent(callbackUrl)}`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-        }
+        { method: 'POST', headers: { 'Content-Type': 'application/json' } }
       );
 
-      if (!response.ok) {
-        throw new Error('Failed to start OAuth flow');
-      }
-
+      if (!response.ok) throw new Error('Failed to start OAuth flow');
       const tokenData = await response.json();
-      
-      if (!tokenData.authorize_url) {
-        throw new Error('No authorization URL received');
-      }
-      
-      // Store the token secret for later
+      if (!tokenData.authorize_url) throw new Error('No authorization URL received');
+
       sessionStorage.setItem('discogs_oauth_token_secret', tokenData.oauth_token_secret);
-      
-      // Redirect to Discogs authorization - use assign for better compatibility
       window.location.assign(tokenData.authorize_url);
     } catch (err) {
       console.error('Auth error:', err);
@@ -68,62 +81,34 @@ export function useDiscogsAuth() {
   const handleCallback = useCallback(async (oauthToken: string, oauthVerifier: string) => {
     setIsAuthenticating(true);
     setError(null);
-    
+
     try {
       const tokenSecret = sessionStorage.getItem('discogs_oauth_token_secret');
-      if (!tokenSecret) {
-        throw new Error('Missing OAuth token secret');
-      }
+      if (!tokenSecret) throw new Error('Missing OAuth token secret');
 
       const response = await fetch(
         `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/discogs-auth?action=access_token&oauth_token=${oauthToken}&oauth_token_secret=${encodeURIComponent(tokenSecret)}&oauth_verifier=${oauthVerifier}`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-        }
+        { method: 'POST', headers: { 'Content-Type': 'application/json' } }
       );
 
       if (!response.ok) {
-        throw new Error('Failed to get access token');
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err?.error || 'Failed to complete OAuth');
       }
 
-      const accessData = await response.json();
-      
-      // Get user identity
-      const identityResponse = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/discogs-api`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            action: 'identity',
-            access_token: accessData.access_token,
-            access_token_secret: accessData.access_token_secret,
-          }),
-        }
-      );
-
-      if (!identityResponse.ok) {
-        throw new Error('Failed to get user identity');
+      const result = await response.json();
+      if (!result?.username || !result?.session) {
+        throw new Error('Invalid OAuth response — missing username or session');
       }
 
-      const identity = await identityResponse.json();
-      
-      const newCredentials: DiscogsCredentials = {
-        access_token: accessData.access_token,
-        access_token_secret: accessData.access_token_secret,
-        username: identity.username,
+      const newSession: DiscogsSession = {
+        username: result.username,
+        session: result.session,
       };
-
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(newCredentials));
-      setCredentials(newCredentials);
+      writeSession(newSession);
+      setSession(newSession);
       sessionStorage.removeItem('discogs_oauth_token_secret');
-      
-      // Clean up URL
+
       window.history.replaceState({}, '', window.location.pathname);
     } catch (err) {
       console.error('Callback error:', err);
@@ -133,26 +118,40 @@ export function useDiscogsAuth() {
     }
   }, []);
 
-  const logout = useCallback(() => {
-    localStorage.removeItem(STORAGE_KEY);
-    setCredentials(null);
-  }, []);
+  const logout = useCallback(async () => {
+    const current = session;
+    writeSession(null);
+    setSession(null);
+    if (current) {
+      try {
+        await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/discogs-auth?action=logout`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ session: current.session }),
+        });
+      } catch {
+        // Best-effort; client state already cleared.
+      }
+    }
+  }, [session]);
 
-  // Check for OAuth callback on mount
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const oauthToken = params.get('oauth_token');
     const oauthVerifier = params.get('oauth_verifier');
     const tokenSecret = sessionStorage.getItem('discogs_oauth_token_secret');
-
-    // If we have oauth_token, oauth_verifier AND a stored token secret, this is a callback
     if (oauthToken && oauthVerifier && tokenSecret) {
-      console.log('Discogs OAuth callback detected, processing...');
       handleCallback(oauthToken, oauthVerifier);
     }
   }, [handleCallback]);
 
+  // Backwards-compat alias used by existing callers.
+  const credentials = session
+    ? { username: session.username, session: session.session }
+    : null;
+
   return {
+    session,
     credentials,
     isAuthenticated,
     isAuthenticating,
