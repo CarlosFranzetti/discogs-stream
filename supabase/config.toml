@@ -1,1 +1,37 @@
 project_id = "lircvbmcqxbnjaeyrpui"
+
+# Edge functions in this project are invoked by anonymous browser clients
+# (no Supabase Auth user). They authenticate Discogs requests via their own
+# HMAC-signed session token (see supabase/functions/_shared/session.ts).
+# Disable Supabase JWT verification at the function edge so the browser
+# fetch() calls with only Content-Type pass through.
+
+[functions.discogs-auth]
+verify_jwt = false
+
+[functions.discogs-api]
+verify_jwt = false
+
+[functions.discogs-public]
+verify_jwt = false
+
+[functions.youtube-rescan-weekly]
+verify_jwt = false
+
+[functions.youtube-search]
+verify_jwt = false
+
+[functions.invidious-audio]
+verify_jwt = false
+
+[functions.yt-dlp-audio]
+verify_jwt = false
+
+[functions.track-cache]
+verify_jwt = false
+
+[functions.track-media]
+verify_jwt = false
+
+[functions.run-migration]
+verify_jwt = false
