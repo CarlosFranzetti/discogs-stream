@@ -10,12 +10,12 @@ create extension if not exists pg_net;
 -- Drop any prior schedule so re-running the migration doesn't duplicate jobs.
 do $$
 declare
-  jobid integer;
+  job_id_var bigint;
 begin
-  for jobid in
-    select jobid from cron.job where jobname = 'youtube-rescan-weekly'
+  for job_id_var in
+    select cron.job.jobid from cron.job where cron.job.jobname = 'youtube-rescan-weekly'
   loop
-    perform cron.unschedule(jobid);
+    perform cron.unschedule(job_id_var);
   end loop;
 end $$;
 
