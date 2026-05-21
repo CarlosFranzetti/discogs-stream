@@ -194,73 +194,96 @@ export function MobileTitleScreen({
           </div>
         )}
 
-        {/* CSV upload card */}
+        {/* Primary CTA — Connect to Discogs (OAuth) */}
         {!isDiscogsAuthenticated && (
-          <div className="w-full bg-card/50 backdrop-blur-sm rounded-2xl border border-border p-4">
-            <div className="space-y-3">
-              <div className="text-center">
-                <p className="text-sm font-medium text-foreground">Load from CSV files</p>
-                <p className="text-xs text-muted-foreground mt-0.5">No account needed</p>
-              </div>
+          <div className="w-full bg-card/50 backdrop-blur-sm rounded-2xl border border-border p-4 space-y-3">
+            <div className="text-center">
+              <p className="text-sm font-medium text-foreground">Connect your Discogs account</p>
+              <p className="text-xs text-muted-foreground mt-0.5">Auto-sync your collection &amp; wantlist</p>
+            </div>
 
-              {csvCollectionCount > 0 && (
-                <div className="flex items-center justify-between px-3 py-2 bg-primary/5 rounded-lg">
-                  <div className="flex items-center gap-2">
-                    <FileText className="w-4 h-4 text-primary" />
-                    <span className="text-sm text-foreground">{csvCollectionCount} collection</span>
-                  </div>
-                  {onClearCollection && (
-                    <button onClick={onClearCollection} disabled={isCSVLoading} className="text-muted-foreground hover:text-primary">
-                      <X className="w-4 h-4" />
-                    </button>
+            {discogsError && (
+              <p className="text-xs text-destructive text-center p-2 bg-destructive/10 rounded">{discogsError}</p>
+            )}
+
+            <Button
+              onClick={onConnectDiscogs}
+              className="w-full gap-2 py-[18px] text-[0.9rem] shadow-glow"
+            >
+              <Disc3 className="w-4 h-4" />
+              Connect to Discogs
+            </Button>
+
+            {/* CSV fallback — subordinate, smaller typeface */}
+            <input ref={collectionInputRef} type="file" accept=".csv" onChange={handleCollectionChange} className="hidden" disabled={isCSVLoading} />
+            <input ref={wantlistInputRef} type="file" accept=".csv" onChange={handleWantlistChange} className="hidden" disabled={isCSVLoading} />
+
+            <div className="pt-2 border-t border-border/40 space-y-2">
+              <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 text-center">
+                Or load CSV
+              </p>
+
+              {(csvCollectionCount > 0 || csvWantlistCount > 0) && (
+                <div className="space-y-1">
+                  {csvCollectionCount > 0 && (
+                    <div className="flex items-center justify-between px-2 py-1 bg-primary/5 rounded">
+                      <div className="flex items-center gap-1.5">
+                        <FileText className="w-3 h-3 text-primary" />
+                        <span className="text-[11px] text-foreground/80">{csvCollectionCount} collection</span>
+                      </div>
+                      {onClearCollection && (
+                        <button onClick={onClearCollection} disabled={isCSVLoading} className="text-muted-foreground hover:text-primary">
+                          <X className="w-3 h-3" />
+                        </button>
+                      )}
+                    </div>
                   )}
-                </div>
-              )}
-              {csvWantlistCount > 0 && (
-                <div className="flex items-center justify-between px-3 py-2 bg-primary/5 rounded-lg">
-                  <div className="flex items-center gap-2">
-                    <FileText className="w-4 h-4 text-primary" />
-                    <span className="text-sm text-foreground">{csvWantlistCount} wantlist</span>
-                  </div>
-                  {onClearWantlist && (
-                    <button onClick={onClearWantlist} disabled={isCSVLoading} className="text-muted-foreground hover:text-primary">
-                      <X className="w-4 h-4" />
-                    </button>
+                  {csvWantlistCount > 0 && (
+                    <div className="flex items-center justify-between px-2 py-1 bg-primary/5 rounded">
+                      <div className="flex items-center gap-1.5">
+                        <FileText className="w-3 h-3 text-primary" />
+                        <span className="text-[11px] text-foreground/80">{csvWantlistCount} wantlist</span>
+                      </div>
+                      {onClearWantlist && (
+                        <button onClick={onClearWantlist} disabled={isCSVLoading} className="text-muted-foreground hover:text-primary">
+                          <X className="w-3 h-3" />
+                        </button>
+                      )}
+                    </div>
                   )}
                 </div>
               )}
 
               {csvError && (
-                <p className="text-xs text-destructive text-center p-2 bg-destructive/10 rounded">{csvError}</p>
+                <p className="text-[10px] text-destructive text-center p-1.5 bg-destructive/10 rounded">{csvError}</p>
               )}
 
-              <input ref={collectionInputRef} type="file" accept=".csv" onChange={handleCollectionChange} className="hidden" disabled={isCSVLoading} />
-              <input ref={wantlistInputRef} type="file" accept=".csv" onChange={handleWantlistChange} className="hidden" disabled={isCSVLoading} />
-
-              <div className="space-y-2">
+              <div className="grid grid-cols-2 gap-2">
                 <Button
-                  variant="outline"
-                  className="w-full gap-2 border-border hover:border-primary hover:bg-primary/5 hover:text-primary"
+                  variant="ghost"
+                  size="sm"
+                  className="gap-1.5 text-[11px] h-7 text-muted-foreground hover:text-foreground"
                   onClick={() => collectionInputRef.current?.click()}
                   disabled={isCSVLoading}
                 >
-                  {isCSVLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
-                  Upload Collection CSV
+                  {isCSVLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Upload className="w-3 h-3" />}
+                  Collection
                 </Button>
                 <Button
-                  variant="outline"
-                  className="w-full gap-2 border-border hover:border-primary hover:bg-primary/5 hover:text-primary"
+                  variant="ghost"
+                  size="sm"
+                  className="gap-1.5 text-[11px] h-7 text-muted-foreground hover:text-foreground"
                   onClick={() => wantlistInputRef.current?.click()}
                   disabled={isCSVLoading}
                 >
-                  {isCSVLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
-                  Upload Wantlist CSV
+                  {isCSVLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Upload className="w-3 h-3" />}
+                  Wantlist
                 </Button>
               </div>
 
-              <details className="text-xs text-muted-foreground">
-                <summary className="cursor-pointer hover:text-foreground">How to export from Discogs</summary>
-                <ol className="list-decimal list-inside space-y-1 ml-2 mt-2">
+              <details className="text-[10px] text-muted-foreground/70">
+                <summary className="cursor-pointer hover:text-foreground text-center">How to export CSVs from Discogs</summary>
+                <ol className="list-decimal list-inside space-y-0.5 ml-2 mt-1">
                   <li>Go to your Discogs collection or wantlist</li>
                   <li>Click the "..." menu and select "Export"</li>
                   <li>Choose CSV format and download</li>
