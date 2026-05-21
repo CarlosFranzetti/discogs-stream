@@ -275,9 +275,21 @@ export function MobilePlayer() {
     if (!ownerKey) return;
     // Reload from cache so newly-synced tracks (and soft-deleted status flips) are
     // reflected in the playlist immediately.
-    const rows = await loadTracks(ownerKey);
-    cachedRowsRef.current = rows;
-    if (rows.length === 0) return;
+    const allRows = await loadTracks(ownerKey);
+    cachedRowsRef.current = allRows;
+    if (allRows.length === 0) return;
+    // Drop release-level placeholders for any release whose per-track rows already exist.
+    const expandedReleases = new Set<string>();
+    for (const r of allRows) {
+      if (r.track_position && r.release_id) {
+        expandedReleases.add(`${r.source}-${r.release_id}`);
+      }
+    }
+    const rows = allRows.filter((r) => {
+      if (r.track_position) return true;
+      if (!r.release_id) return true;
+      return !expandedReleases.has(`${r.source}-${r.release_id}`);
+    });
     setDiscogsTracks((prev) => {
       if (prev.length === 0) {
         return rows.map((row) => ({
@@ -321,7 +333,21 @@ export function MobilePlayer() {
       if (rows.length > 0) {
         setDiscogsTracks((prev) => {
           if (prev.length === 0) {
-            const fromDb: Track[] = rows.map((row) => ({
+            // Drop release-level placeholders for any release that already has
+            // expanded per-track rows in the cache. Prevents the "one per release"
+            // symptom on return visits.
+            const expandedReleases = new Set<string>();
+            for (const r of rows) {
+              if (r.track_position && r.release_id) {
+                expandedReleases.add(`${r.source}-${r.release_id}`);
+              }
+            }
+            const usable = rows.filter((r) => {
+              if (r.track_position) return true; // per-track row, always keep
+              if (!r.release_id) return true;
+              return !expandedReleases.has(`${r.source}-${r.release_id}`);
+            });
+            const fromDb: Track[] = usable.map((row) => ({
               id: row.track_id,
               title: row.title,
               artist: row.artist,
@@ -418,6 +444,29 @@ export function MobilePlayer() {
     },
     [expandCsvTracks]
   );
+
+  // Auto-expand release-level placeholders into per-track entries. Fires whenever
+  // sync (or CSV) adds rows missing `discogsTrackPosition`. Deduped by release id
+  // so cached/expanded releases never re-fetch from Discogs (REQ-C7 / D-08).
+  const expandedReleaseIdsRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (discogsTracks.length === 0) return;
+    const pending = {
+      collection: [] as Track[],
+      wantlist: [] as Track[],
+    };
+    for (const t of discogsTracks) {
+      if (t.discogsTrackPosition) continue; // already expanded
+      if (!t.discogsReleaseId) continue;
+      if (t.source !== 'collection' && t.source !== 'wantlist') continue;
+      const key = `${t.source}-${t.discogsReleaseId}`;
+      if (expandedReleaseIdsRef.current.has(key)) continue;
+      expandedReleaseIdsRef.current.add(key);
+      pending[t.source].push(t);
+    }
+    if (pending.collection.length > 0) runTrackExpansion(pending.collection, 'collection');
+    if (pending.wantlist.length > 0) runTrackExpansion(pending.wantlist, 'wantlist');
+  }, [discogsTracks, runTrackExpansion]);
 
   const handleVolumeChange = useCallback((value: number[]) => {
     audioController.setVolume(value[0]);
