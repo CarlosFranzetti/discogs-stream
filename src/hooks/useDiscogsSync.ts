@@ -16,6 +16,13 @@ export interface UseDiscogsSyncArgs {
   releasesToTracks: (raw: unknown[], source: 'collection' | 'wantlist') => Track[];
   /** Called once sync completes successfully with new tracks (so callers can merge). */
   onSyncResult?: (result: SyncResult) => void;
+  /**
+   * Cache state for this owner: 'loading' until the local DB cache has been read,
+   * then 'empty' or 'has-data'. Auto-sync fires only once the cache is known to be
+   * empty — so a returning user with cached tracks loads instantly and re-syncs
+   * only on demand (manual "Re-sync now").
+   */
+  cacheStatus?: 'loading' | 'empty' | 'has-data';
 }
 
 export interface UseDiscogsSyncReturn {
@@ -29,7 +36,7 @@ export interface UseDiscogsSyncReturn {
 }
 
 export function useDiscogsSync(args: UseDiscogsSyncArgs): UseDiscogsSyncReturn {
-  const { username, session, ownerKey, releasesToTracks, onSyncResult } = args;
+  const { username, session, ownerKey, releasesToTracks, onSyncResult, cacheStatus = 'loading' } = args;
   const { upsertTracks, loadTracks } = useTrackCache();
 
   const [isSyncing, setIsSyncing] = useState(false);
@@ -42,11 +49,11 @@ export function useDiscogsSync(args: UseDiscogsSyncArgs): UseDiscogsSyncReturn {
   const autoSyncDoneRef = useRef<string | null>(null);
 
   const refreshStatus = useCallback(async () => {
-    if (!username) return;
-    const status = await fetchSyncStatus(username);
+    if (!username || !session) return;
+    const status = await fetchSyncStatus(username, session);
     setLastSyncAt(status.lastSyncAt);
     setLastRescanAt(status.lastRescanAt);
-  }, [username]);
+  }, [username, session]);
 
   const syncNow = useCallback(async () => {
     if (!username || !session || !ownerKey) return;
@@ -84,13 +91,17 @@ export function useDiscogsSync(args: UseDiscogsSyncArgs): UseDiscogsSyncReturn {
     refreshStatus();
   }, [refreshStatus]);
 
-  // Auto-sync once per username when both username + session are present (D-07).
+  // Auto-sync once per username, but ONLY when the local cache is empty (D-07).
+  // A returning user with cached tracks loads instantly from the DB and re-syncs
+  // only via the manual "Re-sync now" button — no full re-download every visit.
   useEffect(() => {
     if (!username || !session || !ownerKey) return;
+    if (cacheStatus === 'loading') return;          // wait until cache is known
+    if (cacheStatus === 'has-data') return;         // cache hit — skip auto-sync
     if (autoSyncDoneRef.current === username) return;
     autoSyncDoneRef.current = username;
     syncNow();
-  }, [username, session, ownerKey, syncNow]);
+  }, [username, session, ownerKey, cacheStatus, syncNow]);
 
   return {
     isSyncing,

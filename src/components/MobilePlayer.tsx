@@ -316,20 +316,25 @@ export function MobilePlayer() {
     });
   }, [ownerKey, loadTracks, applyCachedMetadata]);
 
+  const [cacheStatus, setCacheStatus] = useState<'loading' | 'empty' | 'has-data'>('loading');
+
   const discogsSync = useDiscogsSync({
     username: credentials?.username || null,
     session: credentials?.session || null,
     ownerKey,
     releasesToTracks,
     onSyncResult: () => { onSyncComplete(); },
+    cacheStatus,
   });
 
   // Load cached metadata from database for faster future loads.
   useEffect(() => {
     let cancelled = false;
+    setCacheStatus('loading');
     loadTracks(ownerKey).then((rows) => {
       if (cancelled) return;
       cachedRowsRef.current = rows;
+      setCacheStatus(rows.length > 0 ? 'has-data' : 'empty');
       if (rows.length > 0) {
         setDiscogsTracks((prev) => {
           if (prev.length === 0) {

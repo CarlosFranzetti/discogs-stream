@@ -9,7 +9,6 @@
  *   - Pages are upserted incrementally — a mid-sync drop leaves valid state (D-08).
  */
 
-import { supabase } from '@/integrations/supabase/client';
 import type { Track } from '@/types/track';
 import type { TrackCacheRow } from '@/hooks/useTrackCache';
 
@@ -89,37 +88,52 @@ export async function runDiscogsSync(
       existingRows.map((r) => r.release_id).filter((id): id is number => Number.isFinite(id))
     );
 
-    // ---- Fetch full collection ----
-    onProgress?.({ phase: 'collection', collected: 0 });
-    const colData = (await callDiscogsApi(session, username, 'collection_full')) as {
-      releases?: unknown[];
-    };
-    const collectionReleases = colData?.releases || [];
-    const collectionTracks = releasesToTracks(collectionReleases, 'collection');
-    if (collectionTracks.length > 0) {
-      // Chunked upsert (100 at a time) for resume-safety.
+    // ---- Fetch full collection (isolated — a wantlist failure must not lose this) ----
+    let collectionTracks: Track[] = [];
+    let collectionOk = false;
+    try {
+      onProgress?.({ phase: 'collection', collected: 0 });
+      const colData = (await callDiscogsApi(session, username, 'collection_full')) as {
+        releases?: unknown[];
+      };
+      const collectionReleases = colData?.releases || [];
+      collectionTracks = releasesToTracks(collectionReleases, 'collection');
+      collectionOk = true;
       for (let i = 0; i < collectionTracks.length; i += 100) {
         const chunk = collectionTracks.slice(i, i + 100);
         await upsertTracks(ownerKey, chunk);
         upserted += chunk.length;
         onProgress?.({ phase: 'collection', collected: upserted });
       }
+    } catch (e) {
+      console.error('collection sync failed', e);
     }
 
-    // ---- Fetch full wantlist ----
-    onProgress?.({ phase: 'wantlist', collected: upserted });
-    const wantData = (await callDiscogsApi(session, username, 'wantlist_full')) as {
-      wants?: unknown[];
-    };
-    const wantReleases = wantData?.wants || [];
-    const wantlistTracks = releasesToTracks(wantReleases, 'wantlist');
-    if (wantlistTracks.length > 0) {
+    // ---- Fetch full wantlist (isolated) ----
+    let wantlistTracks: Track[] = [];
+    let wantlistOk = false;
+    try {
+      onProgress?.({ phase: 'wantlist', collected: upserted });
+      const wantData = (await callDiscogsApi(session, username, 'wantlist_full')) as {
+        wants?: unknown[];
+      };
+      const wantReleases = wantData?.wants || [];
+      wantlistTracks = releasesToTracks(wantReleases, 'wantlist');
+      wantlistOk = true;
       for (let i = 0; i < wantlistTracks.length; i += 100) {
         const chunk = wantlistTracks.slice(i, i + 100);
         await upsertTracks(ownerKey, chunk);
         upserted += chunk.length;
         onProgress?.({ phase: 'wantlist', collected: upserted });
       }
+    } catch (e) {
+      console.error('wantlist sync failed', e);
+    }
+
+    if (!collectionOk && !wantlistOk) {
+      const message = 'Both collection and wantlist failed to fetch';
+      onProgress?.({ phase: 'error', collected: upserted, message });
+      return { ok: false, upserted, softDeleted, error: message };
     }
 
     // ---- Reconcile: soft-delete releases removed remotely ----
@@ -132,21 +146,22 @@ export async function runDiscogsSync(
       if (typeof t.discogsReleaseId === 'number') remoteReleaseIds.add(t.discogsReleaseId);
     }
 
-    const removed = Array.from(existingReleaseIds).filter((id) => !remoteReleaseIds.has(id));
+    // Only reconcile when BOTH lists fetched successfully — otherwise a failed or
+    // partial fetch would soft-delete releases that are actually still present.
+    const removed = (collectionOk && wantlistOk)
+      ? Array.from(existingReleaseIds).filter((id) => !remoteReleaseIds.has(id))
+      : [];
     if (removed.length > 0) {
-      // Soft-delete via track-cache action so RLS / auth is uniform.
-      const { error } = await supabase
-        .from('discogs_track_cache')
-        .update({ working_status: 'non_working' })
-        .eq('owner_key', ownerKey)
-        .in('release_id', removed);
-      if (!error) {
-        softDeleted = removed.length;
-      }
+      // Soft-delete via edge function — discogs_track_cache is RLS-locked to
+      // service_role, so the browser cannot update it directly (D-05).
+      const res = (await callDiscogsApi(session, username, 'soft_delete_releases', {
+        release_ids: removed,
+      })) as { softDeleted?: number };
+      softDeleted = res?.softDeleted || 0;
     }
 
-    // ---- Stamp last_sync_at ----
-    await supabase.from('user_tokens').update({ last_sync_at: new Date().toISOString() }).eq('username', username);
+    // ---- Stamp last_sync_at (server-side; user_tokens is RLS-locked) ----
+    await callDiscogsApi(session, username, 'stamp_sync');
 
     onProgress?.({ phase: 'done', collected: upserted });
     return { ok: true, upserted, softDeleted };
@@ -159,19 +174,24 @@ export async function runDiscogsSync(
 
 /**
  * Fetch the last sync + last rescan timestamps for display in Settings.
+ * Reads via the discogs-api edge function because user_tokens is RLS-locked
+ * to service_role (the browser cannot query it directly).
  */
-export async function fetchSyncStatus(username: string): Promise<{
-  lastSyncAt: string | null;
-  lastRescanAt: string | null;
-}> {
-  if (!username) return { lastSyncAt: null, lastRescanAt: null };
-  const { data } = await supabase
-    .from('user_tokens')
-    .select('last_sync_at, last_rescan_at')
-    .eq('username', username)
-    .maybeSingle();
-  return {
-    lastSyncAt: data?.last_sync_at ?? null,
-    lastRescanAt: data?.last_rescan_at ?? null,
-  };
+export async function fetchSyncStatus(
+  username: string,
+  session: string
+): Promise<{ lastSyncAt: string | null; lastRescanAt: string | null }> {
+  if (!username || !session) return { lastSyncAt: null, lastRescanAt: null };
+  try {
+    const res = (await callDiscogsApi(session, username, 'sync_status')) as {
+      lastSyncAt?: string | null;
+      lastRescanAt?: string | null;
+    };
+    return {
+      lastSyncAt: res?.lastSyncAt ?? null,
+      lastRescanAt: res?.lastRescanAt ?? null,
+    };
+  } catch {
+    return { lastSyncAt: null, lastRescanAt: null };
+  }
 }

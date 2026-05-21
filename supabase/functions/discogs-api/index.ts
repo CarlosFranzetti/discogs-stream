@@ -123,6 +123,43 @@ serve(async (req) => {
       return json({ username });
     }
 
+    if (action === 'sync_status') {
+      // Read last_sync_at / last_rescan_at for the session's user (user_tokens is
+      // RLS-locked to service_role, so the browser can't read it directly).
+      const { data } = await supabase
+        .from('user_tokens')
+        .select('last_sync_at, last_rescan_at')
+        .eq('username', username)
+        .maybeSingle();
+      return json({
+        lastSyncAt: data?.last_sync_at ?? null,
+        lastRescanAt: data?.last_rescan_at ?? null,
+      });
+    }
+
+    if (action === 'stamp_sync') {
+      await supabase
+        .from('user_tokens')
+        .update({ last_sync_at: new Date().toISOString() })
+        .eq('username', username);
+      return json({ ok: true });
+    }
+
+    if (action === 'soft_delete_releases') {
+      // Flip working_status='non_working' for releases removed remotely (D-05).
+      const releaseIds = Array.isArray(params?.release_ids)
+        ? (params.release_ids as number[]).filter((n) => Number.isFinite(n))
+        : [];
+      if (releaseIds.length === 0) return json({ ok: true, softDeleted: 0 });
+      const { error } = await supabase
+        .from('discogs_track_cache')
+        .update({ working_status: 'non_working' })
+        .eq('owner_key', username)
+        .in('release_id', releaseIds);
+      if (error) return jsonErr('soft_delete_failed', 500);
+      return json({ ok: true, softDeleted: releaseIds.length });
+    }
+
     if (action === 'collection') {
       const page = params?.page || 1;
       const perPage = params?.per_page || 50;
