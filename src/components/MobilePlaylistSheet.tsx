@@ -112,6 +112,57 @@ export function MobilePlaylistSheet({
           </div>
         </SheetHeader>
 
+        {/* Search + sort chips — at the top of the playlist so they're never
+            obscured by activity messages docked at the bottom of the screen. */}
+        <div className="px-4 py-2 border-b border-border/60 shrink-0">
+          <div className="flex items-center gap-2 bg-muted/50 rounded-lg px-3 py-1.5">
+            <Search className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+            <input
+              type="text"
+              placeholder="Search tracks..."
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              className="bg-transparent text-sm flex-1 outline-none text-foreground placeholder:text-muted-foreground"
+            />
+          </div>
+          <div className="flex gap-1.5 mt-2 flex-wrap">
+            {(['artist', 'title', 'genre'] as const).map((key) => (
+              <button
+                key={key}
+                onClick={() => setSortBy(prev => prev === key ? 'none' : key)}
+                className={`px-2 py-0.5 rounded-full text-[10px] border transition-colors capitalize ${
+                  sortBy === key
+                    ? 'bg-primary/15 text-primary border-primary'
+                    : 'bg-muted text-muted-foreground border-transparent'
+                }`}
+              >
+                {key.charAt(0).toUpperCase() + key.slice(1)}
+              </button>
+            ))}
+            {showSourceFilter && (
+              <>
+                <div className="w-px bg-border mx-0.5 self-stretch" />
+                {(['collection', 'wantlist'] as const).map((src) => {
+                  const active = activeSources!.includes(src);
+                  return (
+                    <button
+                      key={src}
+                      onClick={() => onToggleSource?.(src)}
+                      className={`px-2 py-0.5 rounded-full text-[10px] border transition-colors flex items-center gap-1 ${
+                        active
+                          ? 'bg-primary/15 text-primary border-primary'
+                          : 'bg-muted text-muted-foreground/50 border-transparent line-through'
+                      }`}
+                    >
+                      {src === 'collection' ? '◎' : '♡'} {src.charAt(0).toUpperCase() + src.slice(1)}
+                    </button>
+                  );
+                })}
+              </>
+            )}
+          </div>
+        </div>
+
         <ScrollArea className="flex-1">
           <div className={isTight ? 'py-1' : 'py-2'}>
             {sortedPlaylist.map((track, idx) => {
@@ -189,56 +240,6 @@ export function MobilePlaylistSheet({
           </div>
         </ScrollArea>
 
-        {/* Search + sort chips (moved to bottom for thumb reach) */}
-        <div className="px-4 py-2 border-t border-border">
-          <div className="flex items-center gap-2 bg-muted/50 rounded-lg px-3 py-1.5">
-            <Search className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-            <input
-              type="text"
-              placeholder="Search tracks..."
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
-              className="bg-transparent text-sm flex-1 outline-none text-foreground placeholder:text-muted-foreground"
-            />
-          </div>
-          <div className="flex gap-1.5 mt-2 flex-wrap">
-            {(['artist', 'title', 'genre'] as const).map((key) => (
-              <button
-                key={key}
-                onClick={() => setSortBy(prev => prev === key ? 'none' : key)}
-                className={`px-2 py-0.5 rounded-full text-[10px] border transition-colors capitalize ${
-                  sortBy === key
-                    ? 'bg-primary/15 text-primary border-primary'
-                    : 'bg-muted text-muted-foreground border-transparent'
-                }`}
-              >
-                {key.charAt(0).toUpperCase() + key.slice(1)}
-              </button>
-            ))}
-            {/* Source filter toggles */}
-            {showSourceFilter && (
-              <>
-                <div className="w-px bg-border mx-0.5 self-stretch" />
-                {(['collection', 'wantlist'] as const).map((src) => {
-                  const active = activeSources!.includes(src);
-                  return (
-                    <button
-                      key={src}
-                      onClick={() => onToggleSource?.(src)}
-                      className={`px-2 py-0.5 rounded-full text-[10px] border transition-colors flex items-center gap-1 ${
-                        active
-                          ? 'bg-primary/15 text-primary border-primary'
-                          : 'bg-muted text-muted-foreground/50 border-transparent line-through'
-                      }`}
-                    >
-                      {src === 'collection' ? '◎' : '♡'} {src.charAt(0).toUpperCase() + src.slice(1)}
-                    </button>
-                  );
-                })}
-              </>
-            )}
-          </div>
-        </div>
       </SheetContent>
     </Sheet>
   );

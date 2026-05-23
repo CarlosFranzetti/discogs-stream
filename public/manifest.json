@@ -1,17 +1,21 @@
 {
-  "name": "Discogs Radio",
-  "short_name": "Discogs Radio",
+  "name": "Discogs Stream",
+  "short_name": "Discogs Stream",
   "description": "Stream your vinyl collection",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
+  "display_override": ["fullscreen", "standalone"],
   "background_color": "#0a0a0a",
   "theme_color": "#0a0a0a",
   "orientation": "portrait",
+  "categories": ["music", "entertainment"],
   "icons": [
     {
       "src": "/favicon.ico",
-      "sizes": "64x64",
-      "type": "image/x-icon"
+      "sizes": "any",
+      "type": "image/x-icon",
+      "purpose": "any"
     }
   ]
 }

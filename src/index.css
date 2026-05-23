@@ -118,43 +118,45 @@
     --sidebar-primary: 22 100% 56%;
   }
 
-  /* Theme: Cyberpunk — neon magenta on near-black, electric cyan accents */
+  /* Theme: Cyberpunk — Akira / Cyberpunk 2077 Johnny Silverhand palette.
+     Hot ruby red primary on cool steel-black with electric ice-blue highlights.
+     Distinct from Midnight (purple/pink) and Orange (orange/teal). */
   .theme-cyberpunk {
-    --background: 270 25% 5%;
-    --foreground: 300 25% 95%;
-    --card: 270 22% 9%;
-    --popover: 270 22% 7%;
-    --primary: 320 100% 60%;          /* hot magenta */
-    --primary-foreground: 270 25% 5%;
-    --secondary: 270 18% 16%;
-    --muted: 270 14% 14%;
-    --accent: 180 100% 55%;            /* electric cyan */
-    --border: 285 22% 22%;
-    --input: 270 18% 16%;
-    --ring: 320 100% 60%;
-    --pulse-color: hsl(320 100% 60% / 0.5);
-    --sidebar-background: 270 22% 7%;
-    --sidebar-primary: 320 100% 60%;
+    --background: 220 18% 5%;          /* cool steel-black */
+    --foreground: 210 30% 95%;
+    --card: 220 16% 9%;
+    --popover: 220 16% 7%;
+    --primary: 352 95% 56%;            /* neon ruby red */
+    --primary-foreground: 220 18% 5%;
+    --secondary: 220 14% 17%;
+    --muted: 220 12% 15%;
+    --accent: 195 100% 60%;            /* electric ice blue */
+    --border: 220 16% 22%;
+    --input: 220 14% 17%;
+    --ring: 352 95% 56%;
+    --pulse-color: hsl(352 95% 56% / 0.5);
+    --sidebar-background: 220 16% 7%;
+    --sidebar-primary: 352 95% 56%;
   }
 
-  /* Back-compat alias — previously-stored "theme-neon-yellow" maps to cyberpunk
-     so existing localStorage settings don't fall back to base dark. */
+  /* Legacy alias — old localStorage values map to cyberpunk so existing
+     installs keep a working theme. */
   .theme-neon-yellow {
-    --background: 270 25% 5%;
-    --foreground: 300 25% 95%;
-    --card: 270 22% 9%;
-    --popover: 270 22% 7%;
-    --primary: 320 100% 60%;
-    --primary-foreground: 270 25% 5%;
-    --secondary: 270 18% 16%;
-    --muted: 270 14% 14%;
-    --accent: 180 100% 55%;
-    --border: 285 22% 22%;
-    --input: 270 18% 16%;
-    --ring: 320 100% 60%;
-    --pulse-color: hsl(320 100% 60% / 0.5);
-    --sidebar-background: 270 22% 7%;
-    --sidebar-primary: 320 100% 60%;
+    --background: 220 18% 5%;
+    --foreground: 210 30% 95%;
+    --card: 220 16% 9%;
+    --popover: 220 16% 7%;
+    --primary: 352 95% 56%;
+    --primary-foreground: 220 18% 5%;
+    --secondary: 220 14% 17%;
+    --muted: 220 12% 15%;
+    --accent: 195 100% 60%;
+    --border: 220 16% 22%;
+    --input: 220 14% 17%;
+    --ring: 352 95% 56%;
+    --pulse-color: hsl(352 95% 56% / 0.5);
+    --sidebar-background: 220 16% 7%;
+    --sidebar-primary: 352 95% 56%;
   }
 }
 
@@ -256,10 +258,18 @@
 }
 
 @layer utilities {
-  /* Low-priority progress notice — suppressible via Options, never blocks UI. */
-  [data-sonner-toast].activity-toast,
-  [data-sonner-toast].activity-toast * {
+  /* Low-priority progress notice — small, 40% opacity, click-through so it
+     never blocks the playlist/search/transport. Suppressible via Options. */
+  [data-sonner-toast].activity-toast {
     opacity: 0.4 !important;
+    pointer-events: none !important;
+    font-size: 11px !important;
+    padding: 6px 10px !important;
+    min-height: 0 !important;
+    max-width: 220px !important;
+    box-shadow: none !important;
+  }
+  [data-sonner-toast].activity-toast * {
     pointer-events: none;
   }
 

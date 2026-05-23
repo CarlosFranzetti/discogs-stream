@@ -37,10 +37,11 @@ export function MobilePlayer() {
   const { settings } = useSettings();
   const showActivityRef = useRef(settings.showActivityMessages);
   showActivityRef.current = settings.showActivityMessages;
-  // Low-priority progress notice — top-center, 40% opacity, suppressible via Options.
+  // Low-priority progress notice — tiny, 40% opacity, bottom-right (out of the
+  // playlist sheet's path), short-lived, suppressible via Options.
   const activityToast = useCallback((message: string) => {
     if (!showActivityRef.current) return;
-    toast(message, { position: 'top-center', className: 'activity-toast', duration: 2000 });
+    toast(message, { position: 'bottom-right', className: 'activity-toast', duration: 1800 });
   }, []);
 
   // User auth

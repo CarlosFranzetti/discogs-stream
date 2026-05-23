@@ -1,7 +1,7 @@
 import { Button } from '@/components/ui/button';
 import { Disc3, Heart, Play, User, LogOut, Radio, Loader2, Upload, FileText, X } from 'lucide-react';
 import { SourceType } from './SourceFilters';
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
 
 interface SourceToggleProps {
   label: string;
@@ -92,6 +92,23 @@ export function MobileTitleScreen({
 }: MobileTitleScreenProps) {
   const collectionInputRef = useRef<HTMLInputElement>(null);
   const wantlistInputRef = useRef<HTMLInputElement>(null);
+
+  // Detect whether the app is running standalone (installed) or in a browser tab.
+  // Used to show a one-time "Add to Home Screen" hint that hides browser chrome.
+  const [showInstallHint, setShowInstallHint] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    if (localStorage.getItem('install_hint_dismissed') === '1') return false;
+    const standalone =
+      window.matchMedia?.('(display-mode: standalone)').matches ||
+      // iOS Safari
+      (window.navigator as Navigator & { standalone?: boolean }).standalone === true;
+    return !standalone;
+  });
+  const dismissInstallHint = () => {
+    localStorage.setItem('install_hint_dismissed', '1');
+    setShowInstallHint(false);
+  };
+  const isIOS = typeof navigator !== 'undefined' && /iphone|ipad|ipod/i.test(navigator.userAgent);
 
   const handleCollectionChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -291,6 +308,27 @@ export function MobileTitleScreen({
                 </ol>
               </details>
             </div>
+          </div>
+        )}
+
+        {/* Install hint — hides browser chrome when added to Home Screen. */}
+        {showInstallHint && (
+          <div className="rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 flex items-start gap-2">
+            <Disc3 className="w-3.5 h-3.5 text-primary mt-0.5 shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-[11px] text-foreground/80 leading-snug">
+                {isIOS
+                  ? 'Tap Share → "Add to Home Screen" for the full-screen app (no browser bar).'
+                  : 'Install for the full-screen app: browser menu → "Install app" or "Add to Home screen".'}
+              </p>
+            </div>
+            <button
+              onClick={dismissInstallHint}
+              className="text-muted-foreground hover:text-foreground shrink-0"
+              aria-label="Dismiss"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
           </div>
         )}
 
