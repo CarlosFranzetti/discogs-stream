@@ -99,42 +99,62 @@
     --sidebar-primary: 280 80% 60%;
   }
 
-  /* Theme: Neon Orange */
+  /* Theme: Neon Orange — molten orange core with electric teal + amber highlights */
   .theme-neon-orange {
-    --background: 20 15% 7%;
-    --foreground: 30 20% 92%;
-    --card: 20 12% 11%;
-    --popover: 20 12% 9%;
-    --primary: 25 100% 55%;
-    --primary-foreground: 20 15% 7%;
-    --secondary: 20 10% 18%;
-    --muted: 20 8% 16%;
-    --accent: 40 100% 60%;
-    --border: 20 10% 20%;
-    --input: 20 10% 18%;
-    --ring: 25 100% 55%;
-    --pulse-color: hsl(25 100% 55% / 0.4);
-    --sidebar-background: 20 12% 9%;
-    --sidebar-primary: 25 100% 55%;
+    --background: 18 22% 6%;
+    --foreground: 30 25% 94%;
+    --card: 18 18% 10%;
+    --popover: 18 18% 8%;
+    --primary: 22 100% 56%;          /* core: hot orange */
+    --primary-foreground: 18 22% 6%;
+    --secondary: 18 14% 17%;
+    --muted: 18 12% 15%;
+    --accent: 182 90% 52%;            /* highlight: electric teal — pops against orange */
+    --border: 18 18% 21%;
+    --input: 18 14% 17%;
+    --ring: 22 100% 56%;
+    --pulse-color: hsl(22 100% 56% / 0.45);
+    --sidebar-background: 18 18% 8%;
+    --sidebar-primary: 22 100% 56%;
   }
 
-  /* Theme: Neon Yellow */
+  /* Theme: Cyberpunk — neon magenta on near-black, electric cyan accents */
+  .theme-cyberpunk {
+    --background: 270 25% 5%;
+    --foreground: 300 25% 95%;
+    --card: 270 22% 9%;
+    --popover: 270 22% 7%;
+    --primary: 320 100% 60%;          /* hot magenta */
+    --primary-foreground: 270 25% 5%;
+    --secondary: 270 18% 16%;
+    --muted: 270 14% 14%;
+    --accent: 180 100% 55%;            /* electric cyan */
+    --border: 285 22% 22%;
+    --input: 270 18% 16%;
+    --ring: 320 100% 60%;
+    --pulse-color: hsl(320 100% 60% / 0.5);
+    --sidebar-background: 270 22% 7%;
+    --sidebar-primary: 320 100% 60%;
+  }
+
+  /* Back-compat alias — previously-stored "theme-neon-yellow" maps to cyberpunk
+     so existing localStorage settings don't fall back to base dark. */
   .theme-neon-yellow {
-    --background: 45 12% 7%;
-    --foreground: 50 20% 92%;
-    --card: 45 10% 11%;
-    --popover: 45 10% 9%;
-    --primary: 52 100% 55%;
-    --primary-foreground: 45 12% 7%;
-    --secondary: 45 8% 18%;
-    --muted: 45 6% 16%;
-    --accent: 35 100% 58%;
-    --border: 45 8% 20%;
-    --input: 45 8% 18%;
-    --ring: 52 100% 55%;
-    --pulse-color: hsl(52 100% 55% / 0.4);
-    --sidebar-background: 45 10% 9%;
-    --sidebar-primary: 52 100% 55%;
+    --background: 270 25% 5%;
+    --foreground: 300 25% 95%;
+    --card: 270 22% 9%;
+    --popover: 270 22% 7%;
+    --primary: 320 100% 60%;
+    --primary-foreground: 270 25% 5%;
+    --secondary: 270 18% 16%;
+    --muted: 270 14% 14%;
+    --accent: 180 100% 55%;
+    --border: 285 22% 22%;
+    --input: 270 18% 16%;
+    --ring: 320 100% 60%;
+    --pulse-color: hsl(320 100% 60% / 0.5);
+    --sidebar-background: 270 22% 7%;
+    --sidebar-primary: 320 100% 60%;
   }
 }
 
@@ -236,6 +256,13 @@
 }
 
 @layer utilities {
+  /* Low-priority progress notice — suppressible via Options, never blocks UI. */
+  [data-sonner-toast].activity-toast,
+  [data-sonner-toast].activity-toast * {
+    opacity: 0.4 !important;
+    pointer-events: none;
+  }
+
   .bg-amber-glow {
     background-color: hsl(var(--amber-glow));
   }

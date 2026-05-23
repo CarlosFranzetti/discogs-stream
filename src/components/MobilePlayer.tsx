@@ -20,6 +20,7 @@ import { Loader2, Disc3, Menu } from 'lucide-react';
 import { SourceType } from './SourceFilters';
 import { QuotaBanner } from './QuotaBanner';
 import { toast } from 'sonner';
+import { useSettings } from '@/hooks/useSettings';
 import { SettingsDialog } from '@/components/SettingsDialog';
 import { useTrackMediaResolver } from '@/hooks/useTrackMediaResolver';
 import { useBackgroundVerifier } from '@/hooks/useBackgroundVerifier';
@@ -32,7 +33,16 @@ import { useDiscogsSync } from '@/hooks/useDiscogsSync';
 
 export function MobilePlayer() {
   const navigate = useNavigate();
-  
+
+  const { settings } = useSettings();
+  const showActivityRef = useRef(settings.showActivityMessages);
+  showActivityRef.current = settings.showActivityMessages;
+  // Low-priority progress notice — top-center, 40% opacity, suppressible via Options.
+  const activityToast = useCallback((message: string) => {
+    if (!showActivityRef.current) return;
+    toast(message, { position: 'top-center', className: 'activity-toast', duration: 2000 });
+  }, []);
+
   // User auth
   const { user, isAuthenticated: isUserLoggedIn, signOut } = useAuth();
   
@@ -417,7 +427,7 @@ export function MobilePlayer() {
       if (releaseTracks.length === 0) return;
 
       const releaseIds = new Set(releaseTracks.map((t) => t.discogsReleaseId).filter(Boolean));
-      toast.info(`Expanding ${releaseIds.size} releases into individual tracks…`);
+      activityToast(`Expanding ${releaseIds.size} releases into individual tracks…`);
 
       await expandCsvTracks(releaseTracks, (expandedSoFar, done, total) => {
         // Replace placeholder entries with expanded track entries
@@ -443,7 +453,7 @@ export function MobilePlayer() {
         });
 
         if (done === total) {
-          toast.success(`Expanded to individual tracks (${done} releases)`);
+          activityToast(`Expanded to individual tracks (${done} releases)`);
         }
       });
     },
@@ -558,7 +568,7 @@ export function MobilePlayer() {
       prevDiscogsCountRef.current = discogsTracks.length;
       
       batchLoadCoverArtFromDb(discogsTracks, updateDiscogsTrack).then(dbLoadCount => {
-        if (dbLoadCount > 0) toast.success(`Loaded ${dbLoadCount} cover arts from cache`);
+        if (dbLoadCount > 0) activityToast(`Loaded ${dbLoadCount} cover arts from cache`);
         scrapeCoverArt(discogsTracks, updateDiscogsTrack, true);
       });
     }
@@ -595,12 +605,9 @@ export function MobilePlayer() {
      }
   }, [verifiedTracks, hasUserInteracted]);
 
-  // Update playlist when filtered tracks change
-  useEffect(() => {
-    if (filteredTracks.length > 0 && setPlaylist) {
-      setPlaylist(filteredTracks);
-    }
-  }, [filteredTracks, setPlaylist]);
+  // NOTE: usePlayer already merges filteredTracks into the playlist (preserving
+  // shuffle/sequential order). A direct setPlaylist(filteredTracks) here would
+  // overwrite that order on every track resolution and break shuffle.
 
   // Auto-resolve YouTube with a 3-second skip window for the active track.
   useEffect(() => {
@@ -953,10 +960,12 @@ export function MobilePlayer() {
             onCollectionCSVUpload={handleCollectionCSVUpload}
             onWantlistCSVUpload={handleWantlistCSVUpload}
             isSyncing={discogsSync.isSyncing}
+            isRescanning={discogsSync.isRescanning}
             lastSyncAt={discogsSync.lastSyncAt}
             lastRescanAt={discogsSync.lastRescanAt}
             syncError={discogsSync.error}
             onSyncNow={discogsSync.syncNow}
+            onRescanNow={discogsSync.rescanNow}
           />
           <button
             onClick={() => setSidebarOpen(prev => !prev)}

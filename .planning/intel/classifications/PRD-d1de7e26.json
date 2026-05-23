@@ -1,0 +1,24 @@
+{
+  "source_path": "/Users/carlosfranzetti/Documents/GITHUB/discogs-stream/PRD.md",
+  "type": "PRD",
+  "confidence": "high",
+  "manifest_override": true,
+  "title": "Product Requirements Document — Discogs Stream",
+  "summary": "Defines product vision, personas, goals/non-goals, feature set, success metrics, and constraints for the Discogs Stream vinyl collection streaming app.",
+  "scope": [
+    "Discogs collection import",
+    "CSV import",
+    "Discogs OAuth account sync",
+    "Playback engine (yt-dlp/Invidious/YouTube)",
+    "Volume and keyboard controls",
+    "Persistent user state caching",
+    "Now Playing panel",
+    "Playlist/wantlist reset",
+    "Vinyl rendering",
+    "Supabase discogs_track_cache",
+    "release_cover_art cache"
+  ],
+  "cross_refs": [],
+  "locked": false,
+  "precedence": 2
+}

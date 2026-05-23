@@ -4,12 +4,14 @@ interface Settings {
   pulseEnabled: boolean;
   rainbowPulse: boolean;
   playlistSize: 'tight' | 'loose';
+  showActivityMessages: boolean;
 }
 
 const DEFAULT_SETTINGS: Settings = {
   pulseEnabled: true,
   rainbowPulse: false,
   playlistSize: 'tight',
+  showActivityMessages: true,
 };
 
 const SETTINGS_CHANGE_EVENT = 'app-settings-changed';

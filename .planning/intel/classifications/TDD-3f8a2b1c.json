@@ -1,0 +1,24 @@
+{
+  "source_path": "/Users/carlosfranzetti/Documents/GITHUB/discogs-stream/TDD.md",
+  "type": "SPEC",
+  "confidence": "high",
+  "manifest_override": true,
+  "title": "Technical Design Document — Discogs Stream",
+  "summary": "Technical design covering architecture, Supabase Postgres schema, migrations, React component contracts, and a two-week implementation plan for Discogs Stream.",
+  "scope": [
+    "architecture overview",
+    "Supabase Postgres schema",
+    "database migrations",
+    "React component architecture",
+    "hooks and services",
+    "useAudioController",
+    "NowPlayingPanel",
+    "Discogs OAuth sync",
+    "implementation plan",
+    "risks and edge cases"
+  ],
+  "cross_refs": [],
+  "locked": false,
+  "precedence": 1,
+  "notes": ""
+}

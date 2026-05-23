@@ -102,14 +102,17 @@ export default {
           "50%": { boxShadow: "0 0 60px var(--pulse-color)" },
         },
         "rainbow-pulse": {
-          "0%":   { boxShadow: "0 0 0 3px hsl(190 100% 55% / 0.9), 0 0 40px 12px hsl(190 100% 55% / 0.4), 0 0 90px 30px hsl(190 100% 55% / 0.15)" },
-          "14%":  { boxShadow: "0 0 0 3px hsl(270 100% 68% / 0.9), 0 0 50px 15px hsl(270 100% 68% / 0.4), 0 0 100px 35px hsl(270 100% 68% / 0.15)" },
-          "28%":  { boxShadow: "0 0 0 3px hsl(340 100% 62% / 0.9), 0 0 40px 12px hsl(340 100% 62% / 0.4), 0 0 90px 30px hsl(340 100% 62% / 0.15)" },
-          "42%":  { boxShadow: "0 0 0 3px hsl(25 100% 58% / 0.9),  0 0 50px 15px hsl(25 100% 58% / 0.4),  0 0 100px 35px hsl(25 100% 58% / 0.15)" },
-          "57%":  { boxShadow: "0 0 0 3px hsl(52 100% 58% / 0.9),  0 0 40px 12px hsl(52 100% 58% / 0.4),  0 0 90px 30px hsl(52 100% 58% / 0.15)" },
-          "71%":  { boxShadow: "0 0 0 3px hsl(140 90% 48% / 0.9),  0 0 50px 15px hsl(140 90% 48% / 0.4),  0 0 100px 35px hsl(140 90% 48% / 0.15)" },
-          "85%":  { boxShadow: "0 0 0 3px hsl(200 100% 52% / 0.9), 0 0 40px 12px hsl(200 100% 52% / 0.4), 0 0 90px 30px hsl(200 100% 52% / 0.15)" },
-          "100%": { boxShadow: "0 0 0 3px hsl(190 100% 55% / 0.9), 0 0 40px 12px hsl(190 100% 55% / 0.4), 0 0 90px 30px hsl(190 100% 55% / 0.15)" },
+          // Non-sequential colour walk across the wheel — feels random rather than
+          // a predictable ROYGBIV cycle. Wide hue jumps + uneven stop spacing.
+          "0%":   { boxShadow: "0 0 0 3px hsl(295 100% 65% / 0.9), 0 0 50px 14px hsl(295 100% 65% / 0.4), 0 0 110px 34px hsl(295 100% 65% / 0.15)" },
+          "11%":  { boxShadow: "0 0 0 3px hsl(165 95% 50% / 0.9),  0 0 45px 12px hsl(165 95% 50% / 0.4),  0 0 100px 30px hsl(165 95% 50% / 0.15)" },
+          "23%":  { boxShadow: "0 0 0 3px hsl(15 100% 60% / 0.9),  0 0 55px 16px hsl(15 100% 60% / 0.4),  0 0 115px 36px hsl(15 100% 60% / 0.15)" },
+          "37%":  { boxShadow: "0 0 0 3px hsl(220 100% 60% / 0.9), 0 0 50px 14px hsl(220 100% 60% / 0.4), 0 0 105px 32px hsl(220 100% 60% / 0.15)" },
+          "48%":  { boxShadow: "0 0 0 3px hsl(60 100% 55% / 0.9),  0 0 45px 12px hsl(60 100% 55% / 0.4),  0 0 100px 30px hsl(60 100% 55% / 0.15)" },
+          "61%":  { boxShadow: "0 0 0 3px hsl(330 100% 65% / 0.9), 0 0 55px 16px hsl(330 100% 65% / 0.4), 0 0 115px 36px hsl(330 100% 65% / 0.15)" },
+          "74%":  { boxShadow: "0 0 0 3px hsl(125 85% 50% / 0.9),  0 0 50px 14px hsl(125 85% 50% / 0.4),  0 0 105px 32px hsl(125 85% 50% / 0.15)" },
+          "87%":  { boxShadow: "0 0 0 3px hsl(190 100% 58% / 0.9), 0 0 45px 12px hsl(190 100% 58% / 0.4), 0 0 100px 30px hsl(190 100% 58% / 0.15)" },
+          "100%": { boxShadow: "0 0 0 3px hsl(295 100% 65% / 0.9), 0 0 50px 14px hsl(295 100% 65% / 0.4), 0 0 110px 34px hsl(295 100% 65% / 0.15)" },
         },
         "rainbow-scale": {
           "0%, 100%": { transform: "scale(1)" },
@@ -122,7 +125,9 @@ export default {
         "spin-slow": "spin-slow 8s linear infinite",
         "pulse-glow": "pulse-glow 2s ease-in-out infinite",
         "pulse-slow": "pulse-slow 20s ease-in-out infinite",
-        "rainbow-pulse": "rainbow-pulse 4s ease-in-out infinite, rainbow-scale 2s ease-in-out infinite",
+        // Slower, randomised colour cycle (16s) — breathing scale runs at a
+        // different period (3.7s) so the two never sync up.
+        "rainbow-pulse": "rainbow-pulse 16s ease-in-out infinite, rainbow-scale 3.7s ease-in-out infinite",
       },
       boxShadow: {
         vinyl: "0 20px 60px -15px hsl(220 15% 0% / 0.6)",

@@ -1,0 +1,27 @@
+{
+  "source_path": "/Users/carlosfranzetti/Documents/GITHUB/discogs-stream/CLAUDE.md",
+  "type": "DOC",
+  "confidence": "high",
+  "manifest_override": true,
+  "title": "CLAUDE.md",
+  "summary": "Project guidance for Claude Code covering architecture, data flow, hooks, edge functions, database tables, and conventions for the Discogs Vinyl Collection Streamer web app.",
+  "scope": [
+    "Discogs OAuth and CSV import",
+    "media resolution chain (yt-dlp, Invidious, YouTube API)",
+    "Supabase edge functions",
+    "database tables (release_cover_art, discogs_track_cache, track_media_links)",
+    "React hooks (usePlayer, useTrackMediaResolver, useBackgroundVerifier, useDirectAudio, useCoverArtScraper, useCSVCollection)",
+    "playback components (YouTubePlayer, DirectAudioPlayer, BandcampPlayer)",
+    "deployment configuration (Vercel, CSP)",
+    "development commands and testing"
+  ],
+  "cross_refs": [
+    "supabase/functions/",
+    "vercel.json",
+    ".vercelignore",
+    "src/hooks/useYouTubeSearch.test.ts",
+    ".env"
+  ],
+  "locked": false,
+  "precedence": 3
+}

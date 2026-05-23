@@ -1,0 +1,12 @@
+{
+  "source_path": "/Users/carlosfranzetti/Documents/GITHUB/discogs-stream/docs/superpowers/specs/2026-04-22-all-sprints-design.md",
+  "type": "SPEC",
+  "confidence": "high",
+  "manifest_override": true,
+  "title": "Discogs Stream — All Sprints Design",
+  "summary": "Technical design spec covering four sub-projects: audio controller, now-playing panel, Discogs OAuth sync, and tests/security hardening.",
+  "scope": ["useAudioController", "keyboard shortcuts", "usePlayer", "NowPlayingPanel", "useNowPlayingData", "discogsSync", "useDiscogsSync", "discogs-api edge function", "Vitest tests", "CSP security", "performance"],
+  "cross_refs": [],
+  "locked": false,
+  "precedence": 1
+}

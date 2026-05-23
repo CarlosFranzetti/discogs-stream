@@ -27,11 +27,13 @@ export interface UseDiscogsSyncArgs {
 
 export interface UseDiscogsSyncReturn {
   isSyncing: boolean;
+  isRescanning: boolean;
   progress: SyncProgress | null;
   lastSyncAt: string | null;
   lastRescanAt: string | null;
   error: string | null;
   syncNow: () => Promise<void>;
+  rescanNow: () => Promise<{ ok: boolean; tracksChecked?: number; linksUpdated?: number; error?: string }>;
   refreshStatus: () => Promise<void>;
 }
 
@@ -40,6 +42,7 @@ export function useDiscogsSync(args: UseDiscogsSyncArgs): UseDiscogsSyncReturn {
   const { upsertTracks, loadTracks } = useTrackCache();
 
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isRescanning, setIsRescanning] = useState(false);
   const [progress, setProgress] = useState<SyncProgress | null>(null);
   const [lastSyncAt, setLastSyncAt] = useState<string | null>(null);
   const [lastRescanAt, setLastRescanAt] = useState<string | null>(null);
@@ -86,6 +89,38 @@ export function useDiscogsSync(args: UseDiscogsSyncArgs): UseDiscogsSyncReturn {
     }
   }, [username, session, ownerKey, releasesToTracks, upsertTracks, loadTracks, onSyncResult, refreshStatus]);
 
+  // Manual trigger of the weekly YouTube rescan — re-checks every cached track's
+  // links and updates youtube1/youtube2 + working_status (D-11..D-14). Limited to
+  // 200 rows per manual run so the user doesn't wait minutes; the scheduled cron
+  // does the full sweep.
+  const rescanNow = useCallback(async () => {
+    if (!username || !session || !ownerKey) {
+      return { ok: false, error: 'not_authenticated' };
+    }
+    if (isRescanning) return { ok: false, error: 'in_flight' };
+    setIsRescanning(true);
+    try {
+      const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/youtube-rescan-weekly`;
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: ownerKey, limit: 200 }),
+      });
+      const data = await resp.json().catch(() => ({}));
+      await refreshStatus();
+      if (!resp.ok || !data?.ok) {
+        return { ok: false, error: data?.error || `http_${resp.status}` };
+      }
+      return {
+        ok: true,
+        tracksChecked: data.tracksChecked,
+        linksUpdated: data.linksUpdated,
+      };
+    } finally {
+      setIsRescanning(false);
+    }
+  }, [username, session, ownerKey, isRescanning, refreshStatus]);
+
   // Fetch last-sync timestamps whenever username changes.
   useEffect(() => {
     refreshStatus();
@@ -105,11 +140,13 @@ export function useDiscogsSync(args: UseDiscogsSyncArgs): UseDiscogsSyncReturn {
 
   return {
     isSyncing,
+    isRescanning,
     progress,
     lastSyncAt,
     lastRescanAt,
     error,
     syncNow,
+    rescanNow,
     refreshStatus,
   };
 }
