@@ -1,7 +1,7 @@
 import { Button } from '@/components/ui/button';
 import { Disc3, Heart, Play, User, LogOut, Radio, Loader2, Upload, FileText, X } from 'lucide-react';
 import { SourceType } from './SourceFilters';
-import { useRef, useState } from 'react';
+import { useRef } from 'react';
 
 interface SourceToggleProps {
   label: string;
@@ -93,21 +93,16 @@ export function MobileTitleScreen({
   const collectionInputRef = useRef<HTMLInputElement>(null);
   const wantlistInputRef = useRef<HTMLInputElement>(null);
 
-  // Detect whether the app is running standalone (installed) or in a browser tab.
-  // Used to show a one-time "Add to Home Screen" hint that hides browser chrome.
-  const [showInstallHint, setShowInstallHint] = useState(() => {
+  // Show "Add to Home Screen" hint permanently whenever the app is running in
+  // the browser (not installed). It auto-hides once launched standalone from
+  // the home-screen icon, because the browser chrome is already gone then.
+  const showInstallHint = (() => {
     if (typeof window === 'undefined') return false;
-    if (localStorage.getItem('install_hint_dismissed') === '1') return false;
     const standalone =
       window.matchMedia?.('(display-mode: standalone)').matches ||
-      // iOS Safari
       (window.navigator as Navigator & { standalone?: boolean }).standalone === true;
     return !standalone;
-  });
-  const dismissInstallHint = () => {
-    localStorage.setItem('install_hint_dismissed', '1');
-    setShowInstallHint(false);
-  };
+  })();
   const isIOS = typeof navigator !== 'undefined' && /iphone|ipad|ipod/i.test(navigator.userAgent);
 
   const handleCollectionChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -311,27 +306,6 @@ export function MobileTitleScreen({
           </div>
         )}
 
-        {/* Install hint — hides browser chrome when added to Home Screen. */}
-        {showInstallHint && (
-          <div className="rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 flex items-start gap-2">
-            <Disc3 className="w-3.5 h-3.5 text-primary mt-0.5 shrink-0" />
-            <div className="flex-1 min-w-0">
-              <p className="text-[11px] text-foreground/80 leading-snug">
-                {isIOS
-                  ? 'Tap Share → "Add to Home Screen" for the full-screen app (no browser bar).'
-                  : 'Install for the full-screen app: browser menu → "Install app" or "Add to Home screen".'}
-              </p>
-            </div>
-            <button
-              onClick={dismissInstallHint}
-              className="text-muted-foreground hover:text-foreground shrink-0"
-              aria-label="Dismiss"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        )}
-
         {/* Start Listening — ~10% smaller than original py-6 text-base */}
         <Button
           onClick={onStartListening}
@@ -347,6 +321,16 @@ export function MobileTitleScreen({
             ? `Start Listening (${trackCount} tracks)`
             : 'Start Listening'}
         </Button>
+
+        {/* Permanent install hint — only shown when running in the browser; hidden
+            automatically once the app is launched from the Home Screen. */}
+        {showInstallHint && (
+          <p className="text-[11px] text-muted-foreground/70 text-center leading-snug px-2">
+            {isIOS
+              ? 'Tap Share → "Add to Home Screen" for the full-screen app.'
+              : 'Install via browser menu → "Install app" for the full-screen experience.'}
+          </p>
+        )}
 
         {/* User auth */}
         <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
