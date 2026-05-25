@@ -122,7 +122,9 @@ export function useCsvTrackExpander() {
 
   /**
    * Expand an array of release-level tracks into per-track entries.
-   * Calls are rate-limited to 1 request/second to stay within Discogs limits.
+   * 3 in flight at a time — discogs-public has 24h server-side caching so
+   * repeat fetches return instantly, and the consumer-key-authenticated
+   * Discogs origin (60 req/min) absorbs new fetches comfortably at this rate.
    */
   const expandAll = useCallback(
     async (
@@ -131,25 +133,32 @@ export function useCsvTrackExpander() {
     ): Promise<Track[]> => {
       const result: Track[] = [];
       const seen = new Set<number>();
+      const unique = releaseTracks.filter((p) => {
+        const rid = p.discogsReleaseId;
+        if (!rid) return true;
+        if (seen.has(rid)) return false;
+        seen.add(rid);
+        return true;
+      });
 
-      for (let i = 0; i < releaseTracks.length; i++) {
-        const placeholder = releaseTracks[i];
-        const rid = placeholder.discogsReleaseId;
+      const CONCURRENCY = 3;
+      let cursor = 0;
+      let completed = 0;
 
-        // Skip duplicate releases (same release in collection + wantlist)
-        if (rid && seen.has(rid)) continue;
-        if (rid) seen.add(rid);
-
-        const expanded = await expandRelease(placeholder);
-        result.push(...expanded);
-
-        onProgress?.(result, i + 1, releaseTracks.length);
-
-        // 1 req/sec rate limit for Discogs public API
-        if (i < releaseTracks.length - 1) {
-          await new Promise((r) => setTimeout(r, 1000));
+      const runOne = async () => {
+        while (cursor < unique.length) {
+          const idx = cursor++;
+          const placeholder = unique[idx];
+          const expanded = await expandRelease(placeholder);
+          result.push(...expanded);
+          completed++;
+          onProgress?.(result, completed, unique.length);
         }
-      }
+      };
+
+      await Promise.all(
+        Array.from({ length: Math.min(CONCURRENCY, unique.length) }, runOne)
+      );
 
       return result;
     },

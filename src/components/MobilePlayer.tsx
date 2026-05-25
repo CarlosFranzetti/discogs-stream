@@ -624,16 +624,30 @@ export function MobilePlayer() {
       let cancelled = false;
       let timedOut = false;
 
+      // Stop the previous track from playing through the iframe while the new
+      // track resolves. Without this, audio bleeds across selections.
+      setCurrentVideoId('');
+
       const markAsNonWorking = () => {
         applyTrackPatch(trackId, { workingStatus: 'non_working' });
       };
 
-      // Non-working tracks skip faster (500ms); new pending tracks get 3s to resolve
-      const skipDelay = currentTrack.workingStatus === 'non_working' ? 500 : 3000;
+      // Give every pending track a uniform 3s window (no fast-skip for
+      // previously-non_working — rescan may have fixed them). The timeout is
+      // skipped if the player is actually playing/buffering — never interrupt
+      // audio that's already producing sound.
+      const skipDelay = 3000;
       const timeoutId = window.setTimeout(() => {
         if (cancelled) return;
-        // Only skip if the user has started listening — never skip on the title screen
         if (!hasUserInteractedRef.current) return;
+        // Don't skip a track that's actually playing or buffering its audio.
+        const yt = playerRef.current;
+        if (yt && typeof yt.getPlayerState === 'function') {
+          const state = yt.getPlayerState();
+          if (state === 1 /* playing */ || state === 3 /* buffering */) {
+            return;
+          }
+        }
         timedOut = true;
         markAsNonWorking();
         setCurrentVideoId('');

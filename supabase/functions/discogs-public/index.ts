@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -7,12 +8,15 @@ const corsHeaders = {
 };
 
 const DISCOGS_CONSUMER_KEY = Deno.env.get('DISCOGS_CONSUMER_KEY')!;
+const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
+const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
-    return new Response(null, { 
+    return new Response(null, {
       status: 200,
-      headers: corsHeaders 
+      headers: corsHeaders
     });
   }
 
@@ -21,6 +25,22 @@ serve(async (req) => {
 
     if (!release_id) {
       throw new Error('release_id is required');
+    }
+
+    // 24h cache lookup — avoids hitting Discogs (60 req/min auth limit) for
+    // releases already fetched recently by any user.
+    const cacheKey = `discogs-public:release:${release_id}`;
+    const { data: cached } = await supabase
+      .from('search_cache')
+      .select('results')
+      .eq('query', cacheKey)
+      .gt('expires_at', new Date().toISOString())
+      .limit(1)
+      .maybeSingle();
+    if (cached?.results) {
+      return new Response(JSON.stringify(cached.results), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
     }
 
     console.log(`Fetching public Discogs release: ${release_id}`);
@@ -75,6 +95,13 @@ serve(async (req) => {
         title: v.title,
       })),
     };
+
+    // Persist to 24h cache for the next caller.
+    await supabase.from('search_cache').insert({
+      query: cacheKey,
+      results: result,
+      expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+    });
 
     return new Response(JSON.stringify(result), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
