@@ -119,3 +119,4 @@ This project is open source and available under the MIT License.
 *For vinyl lovers, by vinyl lovers.* 📀✨
 
 **Happy Streaming!** 🎧🔥
+# Dichrompler
