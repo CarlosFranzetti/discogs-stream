@@ -33,3 +33,4 @@ gha-creds-*.json
 supabase/.temp/
 .vercel
 .env*.local
+dist-extension/
