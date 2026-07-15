@@ -88,8 +88,14 @@ export function useBackgroundVerifier({
   useEffect(() => {
     setProgress(prev => ({ ...prev, total: tracks.length }));
 
+    // This effect re-runs whenever `tracks` changes reference (i.e. after nearly every
+    // resolved track). Orphaned processNext closures must stop self-rescheduling, or
+    // each effect generation leaks an immortal setTimeout chain.
+    let disposed = false;
+    let selfTimeoutId: ReturnType<typeof setTimeout> | undefined;
+
     const processNext = async () => {
-      if (processingRef.current) return;
+      if (disposed || processingRef.current) return;
 
       const track = getNextTrackToVerify();
       if (!track) {
@@ -169,7 +175,9 @@ export function useBackgroundVerifier({
       } finally {
         processingRef.current = false;
         // Reduced delay — slow searches self-throttle via their own timeouts
-        setTimeout(processNext, 500);
+        if (!disposed) {
+          selfTimeoutId = setTimeout(processNext, 500);
+        }
       }
     };
 
@@ -183,7 +191,11 @@ export function useBackgroundVerifier({
       }
     }, 3000);
 
-    return () => clearInterval(intervalId);
+    return () => {
+      disposed = true;
+      clearInterval(intervalId);
+      if (selfTimeoutId) clearTimeout(selfTimeoutId);
+    };
   }, [tracks, getNextTrackToVerify, searchForVideo, resolveMediaForTrack, updateTrack]);
 
   // Allows callers to force immediate processing (e.g. right after a CSV import)

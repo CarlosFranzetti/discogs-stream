@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Discogs Vinyl Collection Streamer - A web app that streams your Discogs vinyl collection using YouTube and Bandcamp as playback providers. Users can import their collection/wantlist via CSV (no login required) or connect a Discogs account via Settings. Tracks are resolved through a failsafe audio chain (yt-dlp → Invidious → YouTube API) and metadata is persisted to a Supabase database for instant loads on return visits.
+Discogs Vinyl Collection Streamer - A web app that streams your Discogs vinyl collection using YouTube as the playback provider. Users can import their collection/wantlist via CSV (no login required) or connect a Discogs account via Settings. Tracks are resolved through a failsafe search chain (yt-dlp → Invidious → YouTube API) and metadata is persisted to a Supabase database for instant loads on return visits. (Bandcamp/direct-audio playback components were removed 2026-07-15 as dead code — their edge functions remain server-side, currently unconsumed by the UI.)
 
 ## Development Commands
 
@@ -28,7 +28,7 @@ npm run lint
 npm test
 
 # Preview production build
-npm preview
+npm run preview
 ```
 
 ## Architecture Overview
@@ -41,11 +41,7 @@ npm preview
    - First: Check Supabase database for saved track-to-media mappings (`track-media` edge function)
    - Second: Extract YouTube video IDs from Discogs release `videos` field (quota-free)
    - Third: `youtube-search` edge function → yt-dlp (primary) → Invidious (fallback) → Official YouTube API (last resort, no quota guard blocking this chain)
-4. **Direct Audio Extraction**: Once YouTube ID is found, extract direct audio URL:
-   - First: Try yt-dlp (`yt-dlp-audio` edge function) - most reliable
-   - Second: Fallback to Invidious API (`invidious-audio` edge function) - quota-free, multiple instance failover
-   - Third: Final fallback to YouTube IFrame Player API
-5. **Playback**: HTML5 `<audio>` element for direct streams, or YouTube IFrame API / Bandcamp embeds as fallback
+4. **Playback**: YouTube IFrame Player API (`YouTubePlayer.tsx`, youtube-nocookie iframe) — the only live playback path. The direct-audio extraction edge functions (`yt-dlp-audio`, `invidious-audio`) still exist server-side but have no frontend consumer since the dead desktop player was removed (2026-07-15); rewiring them into `MobilePlayer` is a candidate feature (see memorystate.md Suggestions)
 
 ### Key Architectural Patterns
 
@@ -76,6 +72,13 @@ npm preview
 - Persists to localStorage for offline-first fallback
 - `triggerImmediate()` from `useBackgroundVerifier` is called after import to start resolving the first track without waiting for the polling interval
 
+**Discogs Diff-Sync** (`useDiscogsSync`, `src/services/discogsSync.ts`):
+- Remote Discogs is the source of truth for OAuth-connected users
+- Releases removed on Discogs are SOFT-deleted (rows flipped to `working_status='non_working'`) — cached rows are never hard-deleted by sync
+- Likes/dislikes (`user_track_preferences`) are read-only from sync's perspective
+- Pages upsert incrementally, so a mid-sync drop leaves valid state
+- Auto-sync fires only once the local cache is known to be empty; returning users load from cache instantly and re-sync on demand ("Re-sync now")
+
 **Cover Art Scraping** (`useCoverArtScraper`):
 - Two-phase loading: instant (database cache) + background (Discogs API scraping)
 - Batch loads cached covers from `release_cover_art` table on mount
@@ -90,22 +93,14 @@ npm preview
 - Exposes `triggerImmediate()` to force an immediate resolution cycle (called after CSV import)
 - Post-processing delay: 500ms (down from 2000ms; slow searches self-throttle via their own timeouts)
 
-**Direct Audio Playback** (`useDirectAudio`, `DirectAudioPlayer`):
-- Extracts direct audio stream URLs from YouTube to avoid iframe embedding
-- Primary method: yt-dlp (reliable YouTube audio extraction)
-- Fallback method: Invidious API (public instances with automatic failover)
-- Uses HTML5 `<audio>` element for true background playback
-- Completely quota-free and works without YouTube IFrame Player API
-- Auto-falls back to YouTube iframe if both extraction methods fail
-
-**Dimmed Track UX** (`PlaylistSidebar`, `MobilePlaylistSheet`):
+**Dimmed Track UX** (`MobilePlaylistSheet`):
 - `working` tracks: full opacity, click to play
 - `pending` tracks (no YouTube ID yet): `opacity-75`, will resolve soon
 - `non_working` tracks: `opacity-50`, click once to trigger silent background retry + show spinner badge on cover art; click again to play if resolved
 - `retryingId` local state + `retriedOnce` ref per component tracks retry lifecycle
 - No status text overlaid on cover art — small icon badge only (⊘ for non_working, spinner for retrying)
 
-**Playlist Search** (`MobilePlaylistSheet`, `PlaylistSidebar`):
+**Playlist Search** (`MobilePlaylistSheet`):
 - Search bar at the top of the playlist panel filters by title or artist in real time
 - Filtering is display-only; the real playlist indices are preserved for correct `onSelectTrack` calls
 
@@ -115,15 +110,11 @@ npm preview
 src/
 ├── components/          # React components
 │   ├── ui/             # shadcn-ui components (auto-generated)
-│   ├── Player.tsx      # Desktop player component (secondary, via /library route)
-│   ├── MobilePlayer.tsx # Mobile-optimized player (primary, via / route)
+│   ├── MobilePlayer.tsx # The player (route /) — top-level orchestrator
 │   ├── MobilePlaylistSheet.tsx # Slide-in playlist panel with search + retry UX
 │   ├── MobileTitleScreen.tsx   # Title/import screen (CSV upload, Start Listening)
-│   ├── PlaylistSidebar.tsx     # Desktop playlist panel with search + retry UX
 │   ├── SettingsDialog.tsx      # Settings panel (themes, CSV import/export, Discogs OAuth)
-│   ├── YouTubePlayer.tsx # YouTube IFrame wrapper
-│   ├── DirectAudioPlayer.tsx # HTML5 audio player for direct streams
-│   └── BandcampPlayer.tsx # Bandcamp embed wrapper
+│   └── YouTubePlayer.tsx # YouTube IFrame wrapper (only playback surface)
 ├── pages/              # Route components
 │   ├── Auth.tsx        # Discogs OAuth login
 │   ├── Library.tsx     # Desktop player view (/library)
@@ -131,17 +122,26 @@ src/
 ├── hooks/              # Custom React hooks
 │   ├── useDiscogsAuth.ts        # OAuth flow management
 │   ├── useDiscogsData.ts        # Collection/wantlist fetching
+│   ├── useDiscogsSync.ts        # Diff-sync orchestration (auto-sync gating, progress)
 │   ├── useTrackMediaResolver.ts # Media source resolution
 │   ├── usePlayer.ts             # Player state + shuffle/sequential logic
+│   ├── useAudioController.ts    # Unified volume/mute across YT player + HTML5 audio
 │   ├── useBackgroundVerifier.ts # Background media resolution with priority queue
 │   ├── useTrackCache.ts         # Supabase discogs_track_cache CRUD
 │   ├── useYouTubeSearch.ts      # YouTube API search (+ yt-dlp/Invidious chain)
-│   ├── useDirectAudio.ts        # yt-dlp/Invidious audio URL extraction
 │   ├── useCoverArtScraper.ts    # Cover art scraping + DB cache
 │   ├── useCSVCollection.ts      # CSV import state management
-│   └── useTrackPreferences.ts   # Like/dislike persistence
+│   ├── useCsvTrackExpander.ts   # Expands CSV rows into tracks via discogs-public
+│   ├── useTrackPreferences.ts   # Like/dislike persistence
+│   ├── useKeyboardShortcuts.ts  # Desktop keyboard controls
+│   ├── useSettings.ts           # localStorage app settings + change event
+│   ├── useTheme.ts              # Theme switching (see Theme Classes gotcha)
+│   └── useAuth.ts               # Supabase auth session state
+├── services/
+│   └── discogsSync.ts  # OAuth diff-sync engine (soft-delete, incremental upserts)
 ├── lib/                # Utilities
 │   ├── discogs.ts      # Discogs data parsing
+│   ├── csvParser.ts    # Discogs CSV parsing
 │   ├── youtube.ts      # YouTube URL extraction
 │   └── utils.ts        # cn() helper
 ├── types/              # TypeScript types
@@ -150,6 +150,8 @@ src/
 ├── data/               # Static/mock data
 │   ├── mockTracks.ts   # Development mock data + shuffleTracks()
 │   └── discogsCache.ts # Discogs API caching utilities
+├── test/
+│   └── setup.ts        # Vitest setup file
 └── integrations/
     └── supabase/       # Supabase client setup
 ```
@@ -164,14 +166,18 @@ Located in `supabase/functions/`:
 - `track-media`: CRUD for saved track-to-media mappings (stores YouTube IDs or Bandcamp embeds per release/track)
 - `invidious-audio`: Extracts direct audio stream URLs from YouTube via Invidious API (quota-free, multiple instance failover)
 - `yt-dlp-audio`: Extracts audio URLs using yt-dlp (primary direct audio method)
-- `track-cache`: CRUD for `discogs_track_cache` table (persists track metadata across sessions)
-- `run-migration`: Database migration runner
+- `track-cache`: CRUD for `discogs_track_cache` table (persists track metadata across sessions). Writes/deletes on username-keyed rows require a valid HMAC session; `csv-*` capability keys pass as-is
+- `youtube-rescan-weekly`: Weekly link-health rescan — walks `discogs_track_cache`, re-runs the `youtube-search` chain, updates youtube1/youtube2 and flips `working_status`; logs to `rescan_log`. Scheduled via pg_cron `0 4 * * 0` (after daily YouTube quota reset); paced at ~100 rows/min (600ms between calls). Manual trigger: POST `{ "limit": N }`
+- `_shared/session.ts`: Shared session helpers used across functions
 
 ### Database Tables
 
 - `release_cover_art` - Caches Discogs cover art URLs to avoid re-scraping
 - `discogs_track_cache` - Persists full track metadata (artist, title, album, genre, label, year, cover URLs, YouTube IDs, working_status) keyed by `owner_key + track_id`
 - `track_media_links` - Saved track-to-media mappings (YouTube IDs / Bandcamp embeds per release/track position)
+- `search_cache` / `youtube_videos` - YouTube search result caching
+- `user_tokens` - Discogs OAuth tokens (server-side, used by sync/rescan)
+- `rescan_log` - Audit log of weekly rescan passes
 
 ### Environment Variables
 
@@ -187,7 +193,7 @@ Supabase edge functions require:
 
 **Track Identity**: Track IDs combine source, release ID, and position: `${source}-${releaseId}-${position}`. This allows the same release to appear in both collection and wantlist with distinct IDs.
 
-**Media Provider Selection**: Tracks can have both `youtubeId` and `bandcampEmbedSrc`. The `playbackProvider` field determines which is used. Bandcamp is preferred when available (from saved mappings).
+**Media Provider Selection**: Tracks can carry both `youtubeId` and `bandcampEmbedSrc` (from saved `track_media_links` mappings), but only YouTube playback is wired into the live UI — `bandcampEmbedSrc` is currently data-only (the Bandcamp embed component was removed as dead code).
 
 **YouTube Player Integration**: The app loads the YouTube IFrame API script dynamically and waits for the global `YT` object. Player instances are managed via refs to avoid recreation on re-renders.
 
@@ -195,7 +201,9 @@ Supabase edge functions require:
 
 **Content Security Policy**: Strict CSP in `vercel.json` allows YouTube/Bandcamp embeds while blocking other iframes. Media sources are explicitly whitelisted. `.vercelignore` uses `/supabase` (with leading slash) to exclude only the root supabase edge functions directory — not `src/integrations/supabase/`.
 
-**Keyboard Shortcuts**: Desktop player supports keyboard controls (Space = play/pause, `,` = previous track, `.` = next track). Event listeners ignore keypresses when focus is on input/textarea elements.
+**Keyboard Shortcuts** (`useKeyboardShortcuts`): Space = play/pause, ←/→ = prev/next track, ↑/↓ = next/prev release, +/− = volume, M = mute, P = playlist, S = shuffle, O = options. Listeners ignore keypresses when focus is on input/textarea elements.
+
+**Theme Classes** (`useTheme`): `ALL_THEME_CLASSES` must include every theme class the app has ever applied to `<html>` — classes are cleared before reapplying, and any class missing from the list gets stuck when switching away (this was a real bug). Legacy stored theme names (`theme-vintage`, `theme-neon-yellow`) are migrated on read.
 
 **isUsingMockData**: Initialized as `!initialTracks || initialTracks.length === 0` so mock tracks only appear when there is genuinely no real data. On return visits with CSV data in localStorage, mock tracks never load.
 
@@ -207,7 +215,7 @@ Supabase edge functions require:
 
 ## Testing
 
-Tests use Vitest + jsdom. Example test file: `src/hooks/useYouTubeSearch.test.ts`
+Tests use Vitest + jsdom (`globals: true`, setup in `src/test/setup.ts`). Test files: `src/hooks/useYouTubeSearch.test.ts`, `src/lib/csvParser.test.ts`
 
 Run specific test file:
 ```bash

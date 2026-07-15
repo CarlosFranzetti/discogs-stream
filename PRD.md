@@ -5,6 +5,8 @@
 **Status:** Active  
 **Owner:** Carlos Franzetti
 
+> **Implementation status (2026-07-15):** CSV import, Discogs OAuth diff-sync, YouTube playback (iframe), background verification, weekly rescan, themes, and PWA shell are shipped. Bandcamp playback and direct-audio (`<audio>`) playback are NOT in the live UI (frontend removed as dead code; edge functions remain). Current engineering state lives in `memorystate.md`.
+
 ---
 
 ## 1. Problem Statement

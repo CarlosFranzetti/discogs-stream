@@ -2,7 +2,7 @@
 
 Function-level documentation for `src/`. Reference material — see `CLAUDE.md` for architecture narrative.
 
-Generated: 2026-05-20 · Scope: `src/` excluding `test/` · UI primitives in appendix only
+Generated: 2026-05-20 · Last synced: 2026-07-15 (dead-code sweep) · Scope: `src/` excluding `test/` · UI primitives in appendix only
 
 ---
 
@@ -105,20 +105,15 @@ Generated: 2026-05-20 · Scope: `src/` excluding `test/` · UI primitives in app
   - **`prefetchVideos(tracks)`** → 3-concurrency batches with 1 s delay between batches.
   - **`isTrackAvailable(track)`** → `true | false | null` (cached / has id / unknown).
 
-### `src/hooks/useDirectAudio.ts`
-- **`useDirectAudio()`**
-  - **Returns** `{ getDirectAudioUrl(youtubeId), isLoading, error }`
-  - `getDirectAudioUrl(youtubeId)` → tries edge fn `yt-dlp-audio`, falls back to `invidious-audio`. Returns `{ audioUrl, source: 'yt-dlp'|'invidious', title?, author? }`.
-
 ### `src/hooks/useSettings.ts`
 - **`useSettings()`**
-  - **Returns** `{ settings: { pulseEnabled, rainbowPulse, playlistSize }, updateSetting(key, value) }`
+  - **Returns** `{ settings: { pulseEnabled, rainbowPulse, playlistSize, showActivityMessages }, updateSetting(key, value) }`
   - **Storage**: `localStorage.app_settings`; emits custom event `app-settings-changed` for cross-hook sync.
 
 ### `src/hooks/useTheme.ts`
 - **`useTheme()`**
   - **Returns** `{ theme, setTheme }`
-  - **Themes**: `dark | theme-midnight | theme-neon-orange | theme-neon-yellow`. Migrates legacy `theme-vintage` → `theme-neon-orange`.
+  - **Themes**: `dark | theme-midnight | theme-neon-orange | theme-cyberpunk`. Migrates legacy `theme-vintage` → `theme-neon-orange` and `theme-neon-yellow` → `theme-cyberpunk`.
   - **Side effects**: writes `app_theme` to localStorage; toggles `documentElement.classList`.
 
 ### `src/hooks/useAudioController.ts`
@@ -155,12 +150,6 @@ Generated: 2026-05-20 · Scope: `src/` excluding `test/` · UI primitives in app
   - **`expandRelease(releasePlaceholder)`** → edge fn `discogs-public`; extracts tracklist + cover + release videos.
   - **`expandAll(releaseTracks, onProgress?)`** → 1 req/s throttle; deduplicates by release id.
 
-### `src/hooks/useDiscogsYouTubeResolver.ts`
-- **`useDiscogsYouTubeResolver(fetchRelease?)`**
-  - **Returns** `{ resolveVideoIdForTrack, prefetchTracks }`
-  - **Refs**: `releaseCandidatesCache`, `pendingReleaseFetches`.
-  - **`resolveVideoIdForTrack(track, options?)`** — supports `preferDifferentFrom` option for "find an alternate source" flow.
-
 ### `src/hooks/use-mobile.tsx`
 - **`useIsMobile()`** → `boolean` (`window.innerWidth < 768`); uses `matchMedia` listener.
 
@@ -174,64 +163,39 @@ Generated: 2026-05-20 · Scope: `src/` excluding `test/` · UI primitives in app
 
 ## Components
 
-> Mobile components are the primary surface (`MobilePlayer` mounted at `/`). Desktop components live behind `/library`.
+> Mobile components are the only player surface (`MobilePlayer` mounted at `/`). The legacy desktop player tree (`Player`, `PlaylistSidebar`, `AlbumArt`, `Timeline`, `TrackInfo`, `PlayerControls`, `BandcampPlayer`, `DirectAudioPlayer`) was removed 2026-07-15 as dead code; `/library` is the standalone `Library` page.
 
 ### `src/components/MobilePlayer.tsx`
 - Top-level orchestrator for the mobile UI. Integrates every hook (`usePlayer`, `useDiscogsAuth`, `useDiscogsData`, `useCSVCollection`, `useYouTubeSearch`, `useBackgroundVerifier`, `useTrackMediaResolver`, `useCoverArtScraper`, `useAudioController`, `useTrackCache`, `useTrackPreferences`, `useKeyboardShortcuts`, `useTheme`, `useSettings`). Manages CSV import flow, title-screen → player transition, reset.
-
-### `src/components/Player.tsx`
-- Desktop equivalent of `MobilePlayer` (route `/library`). Hosts `PlaylistSidebar`, `AlbumArt`, `Timeline`, `PlayerControls`. Includes `SourceToggle` sub-component.
 
 ### `src/components/YouTubePlayer.tsx`
 - **Props**: `{ videoId, searchQuery?, isPlaying, showVideo, playerRef, onStateChange, onError?, onReady }`
 - Renders a `youtube-nocookie` iframe; lazy-loads the IFrame API script (`window.onYouTubeIframeAPIReady`).
 
-### `src/components/BandcampPlayer.tsx`
-- **Props**: `{ embedSrc, show }` — fullscreen overlay or PiP iframe.
-
-### `src/components/DirectAudioPlayer.tsx`
-- **Props**: `{ audioUrl, isPlaying, onEnded, onError?, onTimeUpdate?, seekTime?, volume?, muted? }` (forwarded ref).
-- HTML5 `<audio>` wrapper for yt-dlp/Invidious streams. Effects sync `volume`/`muted`/`seekTime`.
-
-### `src/components/AlbumArt.tsx`
-- Desktop album cover with animations.
-
 ### `src/components/MobileAlbumCover.tsx`
 - Mobile cover with vinyl disc + dust particle effect. Click handler currently routes to play toggle (target for Sub-project B Now Playing trigger).
 
-### `src/components/Timeline.tsx` / `MobileTimeline.tsx`
+### `src/components/MobileTimeline.tsx`
 - Seek bar + elapsed/remaining time display.
 
-### `src/components/TrackInfo.tsx` / `MobileTrackInfo.tsx`
+### `src/components/MobileTrackInfo.tsx`
 - Artist · title · album · year display.
 
-### `src/components/PlayerControls.tsx` / `MobileTransportControls.tsx`
+### `src/components/MobileTransportControls.tsx`
 - Play/pause, skip, shuffle, volume, like/dislike.
 
-### `src/components/PlaylistSidebar.tsx`
-- Desktop sidebar. Search-by-title/artist; renders dimmed `pending`/`non_working` tracks; per-track retry UX with spinner badge.
-
 ### `src/components/MobilePlaylistSheet.tsx`
-- Mobile bottom-sheet variant of the playlist; identical search + retry semantics.
+- Bottom-sheet playlist. Search-by-title/artist; renders dimmed `pending`/`non_working` tracks; per-track retry UX with spinner badge.
 
 ### `src/components/SourceFilters.tsx`
 - **Type**: `SourceType = 'collection' | 'wantlist' | 'similar'`.
 - **Props**: `{ selectedSources, onSourceChange }`.
-
-### `src/components/CSVUpload.tsx`
-- **Props**: `{ onCollectionUpload, onWantlistUpload, onClear?, isLoading, error, collectionCount, wantlistCount }`. File inputs + progress + clear button.
-
-### `src/components/DiscogsConnect.tsx`
-- **Props**: `{ isAuthenticated, isAuthenticating, username?, error?, onConnect, onDisconnect }`.
 
 ### `src/components/QuotaBanner.tsx`
 - Banner shown when `useYouTubeSearch.isQuotaExceeded` is true (UI-only signal; the chain still runs).
 
 ### `src/components/SettingsDialog.tsx`
 - Theme picker, CSV import/export, Discogs OAuth, "Clear All Data". Currently uses native `confirm()` for destructive reset (Sub-project D will swap for shadcn `AlertDialog`).
-
-### `src/components/NavLink.tsx`
-- Reusable router link styled for in-app nav.
 
 ### `src/components/MobileTitleScreen.tsx`
 - Splash / CSV-upload screen; "Start Listening" CTA.

@@ -12,13 +12,13 @@ Dig through your existing records, browse your wantlist, and discover what you a
 📊 **CSV Import** - Load your collection and wantlist directly from CSV exports - no login required
 🔍 **Background Scraping** - Automatically finds YouTube audio and high-quality cover art for every track in the background
 💾 **Smart Persistence** - Saves all resolved metadata to the cloud database, so your collection loads instantly next time
-🎨 **Themes** - Choose from multiple themes (Default Dark, Midnight Purple, Vintage Green) to match your vibe
+🎨 **Themes** - Choose from multiple themes (Default Dark, Midnight, Neon Orange, Cyberpunk) to match your vibe
 🔀 **Smart Shuffle** - Toggle between shuffled and sequential (artist → album → track order) playback
 🔎 **Playlist Search** - Live-filter your queue by title or artist right in the playlist panel
 📱 **Mobile First** - Designed for on-the-go access with a smooth, app-like experience that fits any screen
-🎵 **YouTube & Bandcamp** - Dual playback providers for maximum compatibility
+🎵 **YouTube Playback** - Privacy-friendly youtube-nocookie player with background verification
 ❤️ **Like/Dislike Tracks** - Curate your listening experience with track preferences
-🛡️ **Failsafe Audio Chain** - yt-dlp → Invidious → YouTube API ensures playback even when quotas run out
+🛡️ **Failsafe Search Chain** - yt-dlp → Invidious → YouTube API keeps resolving tracks even when quotas run out
 🔁 **Auto-Retry Unavailable Tracks** - Dimmed tracks retry in the background; tap once to queue the retry, tap again when resolved to play
 
 ---
@@ -61,7 +61,7 @@ npm run dev
 | `npm run build:dev` | 🐛 Build for development mode |
 | `npm run lint` | 🧹 Run linter |
 | `npm test` | ✅ Run all tests |
-| `npm preview` | 👀 Preview production build |
+| `npm run preview` | 👀 Preview production build |
 
 ---
 
@@ -71,11 +71,11 @@ npm run dev
 src/
 ├── components/          # 🧩 React components
 │   ├── ui/             # 🎨 shadcn-ui components
-│   ├── Player.tsx      # 🖥️ Desktop player
-│   └── MobilePlayer.tsx # 📱 Mobile-optimized player (primary)
+│   └── MobilePlayer.tsx # 📱 The player (mobile-first, all screens)
 ├── hooks/              # 🎣 Custom React hooks
 ├── pages/              # 📄 Route components
-├── lib/                # 🔧 Utilities
+├── services/           # 🔄 Discogs diff-sync engine
+├── lib/                # 🔧 Utilities (CSV parser, Discogs/YouTube helpers)
 ├── types/              # 📝 TypeScript types
 └── integrations/       # 🔌 Supabase client
 ```
@@ -89,13 +89,21 @@ src/
 - 🎨 **Tailwind CSS + shadcn/ui** - Beautiful, accessible components
 - 🗄️ **Supabase** - Backend, edge functions & persistent cloud cache
 - 🎵 **YouTube IFrame API** - Audio playback
-- 🎶 **Bandcamp Embeds** - Alternative playback source
 - 📀 **Discogs API** - Collection & release data
-- 🔧 **yt-dlp + Invidious** - Quota-free direct audio extraction
+- 🔧 **yt-dlp + Invidious** - Quota-free track resolution (server-side edge functions)
 
 ---
 
-## 🌟 Recent Updates (Feb 2026)
+## 🌟 Recent Updates (Jul 2026)
+
+🧹 **Dead Code Sweep** - Removed the unreachable legacy desktop player and 12 orphaned components/hooks; the app is now a single, tight mobile-first player
+📝 **Docs Sync** - CLAUDE.md, README, and the function reference now match the actual codebase; new `memorystate.md` engineering log + `LOOPY.md` loop playbook
+🎨 **Theme Fixes** - Theme switching no longer leaves stuck classes; legacy theme names migrate automatically
+🔊 **Audio Tightness** - Fixed audio bleed across track changes; softened auto-skip; faster CSV track expansion
+
+---
+
+## 🌟 Earlier Updates (Feb 2026)
 
 🛡️ **Failsafe Audio Chain** - YouTube searches now always run through yt-dlp → Invidious → YouTube API, even after quota is exceeded. No more dead silence!
 💾 **Cloud Persistence on Import** - CSV imports now write resolved YouTube IDs and cover art straight to the database. Reopen the app and everything is there instantly

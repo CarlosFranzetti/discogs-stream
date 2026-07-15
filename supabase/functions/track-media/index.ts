@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
+import { verifySession } from "../_shared/session.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -90,6 +91,17 @@ serve(async (req) => {
       if (rows.some((r) => !r.discogs_username || !Number.isFinite(r.discogs_release_id) || !r.track_position)) {
         return new Response(JSON.stringify({ error: 'invalid_items' }), {
           status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      // discogs_username is a public, guessable identifier — writes must prove
+      // ownership with a valid HMAC session for that exact username.
+      const usernames = [...new Set(rows.map((r) => r.discogs_username))];
+      const claims = await verifySession(typeof body?.session === 'string' ? body.session : null);
+      if (usernames.length !== 1 || !claims || claims.username !== usernames[0]) {
+        return new Response(JSON.stringify({ error: 'unauthorized' }), {
+          status: 401,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }

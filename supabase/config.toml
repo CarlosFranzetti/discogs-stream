@@ -32,6 +32,3 @@ verify_jwt = false
 
 [functions.track-media]
 verify_jwt = false
-
-[functions.run-migration]
-verify_jwt = false

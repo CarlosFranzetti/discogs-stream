@@ -61,6 +61,20 @@ function inferWorkingStatus(track: Track): WorkingStatus {
   return track.youtubeId ? 'working' : 'pending';
 }
 
+// The track-cache edge fn requires proof of ownership for writes/deletes on
+// username-keyed rows (csv-* capability keys pass without one). Same storage
+// key as useDiscogsAuth — read lazily so OAuth login/logout is always current.
+function readDiscogsSessionToken(): string | null {
+  try {
+    const raw = localStorage.getItem('discogs_session_v2');
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return typeof parsed?.session === 'string' ? parsed.session : null;
+  } catch {
+    return null;
+  }
+}
+
 export function useTrackCache() {
   const upsertTracks = useCallback(async (ownerKey: string, tracks: Track[]) => {
     if (!ownerKey || tracks.length === 0) return;
@@ -96,6 +110,7 @@ export function useTrackCache() {
       body: {
         action: 'upsert',
         items,
+        session: readDiscogsSessionToken(),
       },
     });
   }, []);
@@ -134,7 +149,9 @@ export function useTrackCache() {
         coverUrls: coverUrls.length > 0 ? coverUrls : track.coverUrls,
         youtubeId: track.youtubeId || row.youtube1 || '',
         youtubeCandidates: youtubeCandidates.length > 0 ? youtubeCandidates : track.youtubeCandidates,
-        workingStatus: row.working_status || track.workingStatus,
+        // A live 'working' status is a fresher verifier result than the cached row —
+        // never downgrade it (re-applying cache mid-import used to dim resolved tracks).
+        workingStatus: track.workingStatus === 'working' ? 'working' : row.working_status || track.workingStatus,
         duration: row.duration && row.duration > 0 ? row.duration : track.duration,
       };
     });
@@ -143,7 +160,7 @@ export function useTrackCache() {
   const deleteTracks = useCallback(async (ownerKey: string) => {
     if (!ownerKey) return;
     await supabase.functions.invoke('track-cache', {
-      body: { action: 'delete', owner_key: ownerKey },
+      body: { action: 'delete', owner_key: ownerKey, session: readDiscogsSessionToken() },
     });
   }, []);
 

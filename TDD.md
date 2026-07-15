@@ -4,6 +4,8 @@
 **Date:** 2026-04-22  
 **Stack:** React 18 + Vite · TypeScript · Tailwind + shadcn/ui · Supabase (Postgres + Edge Functions) · Vercel
 
+> **As-built deviations (2026-07-15):** No Zustand — state is hook-local + Context. `AudioCtrl` exists as `useAudioController` (YT iframe only; the HTML5 `<audio>` direct-stream path has no frontend consumer since the dead-code sweep). Playback is exclusively the YouTube IFrame API. For the authoritative structural reference see `CLAUDE.md` and `docs/CODEBASE-FUNCTIONS.md`; for the running engineering log see `memorystate.md`.
+
 ---
 
 ## 1. Architecture Overview

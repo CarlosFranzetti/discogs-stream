@@ -36,13 +36,24 @@ export interface SessionClaims {
   username: string;
 }
 
+// Constant-time comparison — a plain !== leaks how many leading characters of
+// the forged signature matched, enabling byte-by-byte timing attacks.
+function timingSafeEqual(a: string, b: string): boolean {
+  const ab = enc.encode(a);
+  const bb = enc.encode(b);
+  if (ab.length !== bb.length) return false;
+  let diff = 0;
+  for (let i = 0; i < ab.length; i++) diff |= ab[i] ^ bb[i];
+  return diff === 0;
+}
+
 export async function verifySession(session: string | null | undefined): Promise<SessionClaims | null> {
   if (!session) return null;
   const parts = session.split('.');
   if (parts.length !== 2) return null;
   const [payload, sig] = parts;
   const expected = await hmacSign(payload);
-  if (expected !== sig) return null;
+  if (!timingSafeEqual(expected, sig)) return null;
   try {
     const decoded = JSON.parse(dec.decode(b64urlDecode(payload)));
     if (typeof decoded?.u !== 'string') return null;

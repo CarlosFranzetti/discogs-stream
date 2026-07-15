@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
+import { verifySession } from "../_shared/session.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -32,6 +33,16 @@ interface TrackCacheItem {
   youtube2?: string | null;
   working_status?: 'working' | 'non_working' | 'pending';
   duration?: number | null;
+}
+
+// Write authorization: CSV imports use unguessable `csv-{uuid}` capability keys,
+// so possession of the key IS the authorization. OAuth users' owner_key is their
+// public Discogs username — guessable — so writes/deletes on those keys must
+// prove ownership with a valid HMAC session for that exact username.
+async function isAuthorizedOwner(ownerKey: string, session: unknown): Promise<boolean> {
+  if (ownerKey.startsWith('csv-')) return true;
+  const claims = await verifySession(typeof session === 'string' ? session : null);
+  return !!claims && claims.username === ownerKey;
 }
 
 serve(async (req) => {
@@ -117,6 +128,14 @@ serve(async (req) => {
         });
       }
 
+      const ownerKeys = [...new Set(rows.map((r) => r.owner_key))];
+      if (ownerKeys.length !== 1 || !(await isAuthorizedOwner(ownerKeys[0], body?.session))) {
+        return new Response(JSON.stringify({ error: 'unauthorized' }), {
+          status: 401,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
       const { error } = await supabase
         .from('discogs_track_cache')
         .upsert(rows, { onConflict: 'owner_key,track_id' });
@@ -138,6 +157,13 @@ serve(async (req) => {
       if (!ownerKey) {
         return new Response(JSON.stringify({ error: 'owner_key is required' }), {
           status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      if (!(await isAuthorizedOwner(ownerKey, body?.session))) {
+        return new Response(JSON.stringify({ error: 'unauthorized' }), {
+          status: 401,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }

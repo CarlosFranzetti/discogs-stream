@@ -76,6 +76,18 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  // verify_jwt is disabled for this function (see supabase/config.toml), so gate
+  // it ourselves: only the pg_cron job (which sends the service-role key — see
+  // 20260520000001_schedule_youtube_rescan.sql) or an operator with that key may
+  // trigger a rescan. Without this, anyone could burn YouTube quota at will.
+  const authHeader = req.headers.get('Authorization') || '';
+  if (authHeader !== `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`) {
+    return new Response(JSON.stringify({ error: 'unauthorized' }), {
+      status: 401,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
   const ranAt = new Date().toISOString();
   let body: { limit?: number; username?: string } = {};
   try { body = await req.json(); } catch { /* no body */ }
