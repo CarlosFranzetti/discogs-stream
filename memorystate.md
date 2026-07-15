@@ -37,6 +37,13 @@
 
 ## Log
 
+### 2026-07-15 — Pass 1 SHIPPED: committed, pushed, auto-deployed to production
+- Local dev server verified in browser (title screen renders, HTTP 200) before ship
+- Rebased onto 2 remote commits (new Chrome extension: side panel/crates/carts/pitch/marketplace) — verified extension code has zero imports of the deleted files; full test/tsc/build green on merged tree
+- Committed as `f384d8c`, pushed to origin/master
+- ⚠️ Vercel Git integration auto-deployed the push to **PRODUCTION** (master = production branch; every push does this). Deployment `dpl_7VWETVaY83Hipt7hsoKmtqX9BNS5` READY in ~21s → https://discogs-stream.vercel.app (200, title renders). A separate preview deploy was moot (same commit already live); local `vercel` CLI token is expired anyway (`vercel login` needed for manual deploys).
+- Frontend-only deploy is SAFE with the security changes (client's extra `session` field is ignored by the old deployed edge functions). The Supabase side is still pending — see Deploy-time checklist: `supabase db push` (youtube_videos RLS), `supabase functions deploy track-cache track-media youtube-rescan-weekly`, `supabase functions delete run-migration`.
+
 ### 2026-07-15 — Pass 1, Phase 6: Suggestions written, final verification green
 - 10 ranked feature/optimization candidates recorded above (top pick: rewire direct-audio + Media Session API into MobilePlayer)
 - Final full verification: tests 9/9, tsc clean, lint 0 errors, build OK
