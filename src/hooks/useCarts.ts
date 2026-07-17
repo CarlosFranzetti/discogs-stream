@@ -25,7 +25,7 @@ export function useCarts() {
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
-    await dbSet('carts', cart);
+    await dbSet('carts', cart).catch(err => console.error('[db] persist failed', err));
     setCarts(prev => [cart, ...prev]);
     return cart;
   }, []);
@@ -34,13 +34,13 @@ export function useCarts() {
     setCarts(prev => {
       const updated = prev.map(c => c.id === id ? { ...c, name, updatedAt: Date.now() } : c);
       const cart = updated.find(c => c.id === id);
-      if (cart) dbSet('carts', cart);
+      if (cart) dbSet('carts', cart).catch(err => console.error('[db] persist failed', err));
       return updated;
     });
   }, []);
 
   const deleteCart = useCallback(async (id: string) => {
-    await dbDelete('carts', id);
+    await dbDelete('carts', id).catch(err => console.error('[db] persist failed', err));
     setCarts(prev => prev.filter(c => c.id !== id));
   }, []);
 
@@ -52,7 +52,7 @@ export function useCarts() {
         if (already) return c;
         const newItem: CartItem = { ...item, addedAt: Date.now() };
         const updatedCart = { ...c, items: [...c.items, newItem], updatedAt: Date.now() };
-        dbSet('carts', updatedCart);
+        dbSet('carts', updatedCart).catch(err => console.error('[db] persist failed', err));
         return updatedCart;
       });
       return updated;
@@ -64,7 +64,7 @@ export function useCarts() {
       const updated = prev.map(c => {
         if (c.id !== cartId) return c;
         const updatedCart = { ...c, items: c.items.filter(i => i.releaseId !== releaseId), updatedAt: Date.now() };
-        dbSet('carts', updatedCart);
+        dbSet('carts', updatedCart).catch(err => console.error('[db] persist failed', err));
         return updatedCart;
       });
       return updated;
@@ -76,7 +76,7 @@ export function useCarts() {
       const updated = prev.map(c => {
         if (c.id !== cartId) return c;
         const updatedCart = { ...c, items: [], updatedAt: Date.now() };
-        dbSet('carts', updatedCart);
+        dbSet('carts', updatedCart).catch(err => console.error('[db] persist failed', err));
         return updatedCart;
       });
       return updated;

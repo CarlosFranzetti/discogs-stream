@@ -8,6 +8,11 @@ import { useAuth } from '@/hooks/useAuth';
 import { useTrackPreferences } from '@/hooks/useTrackPreferences';
 import { useCSVCollection } from '@/hooks/useCSVCollection';
 import { YouTubePlayer } from './YouTubePlayer';
+import { DirectAudioPlayer, DirectAudioPlayerRef } from './DirectAudioPlayer';
+import { PitchSlider } from './panel/PitchSlider';
+import { useDirectAudio } from '@/hooks/useDirectAudio';
+import { useMediaSession } from '@/hooks/useMediaSession';
+import { usePitch } from '@/hooks/usePitch';
 import { MobileAlbumCover } from './MobileAlbumCover';
 import { MobileTrackInfo } from './MobileTrackInfo';
 import { MobileTimeline } from './MobileTimeline';
@@ -144,6 +149,7 @@ export function MobilePlayer() {
   const [currentVideoId, setCurrentVideoId] = useState<string>('');
   const lastSearchedTrackId = useRef<string>('');
   const fallbackAttemptedRef = useRef<Set<string>>(new Set());
+  const candidateTriedRef = useRef<Set<string>>(new Set());
   const prefetchedRef = useRef<Set<string>>(new Set());
   const [activeSources, setActiveSources] = useState<SourceType[]>(['collection', 'wantlist']);
   const [hasUserInteracted, setHasUserInteracted] = useState(false);
@@ -178,6 +184,8 @@ export function MobilePlayer() {
     currentTime,
     playerDuration,
     playerRef,
+    play,
+    pause,
     togglePlay,
     skipNext,
     skipPrev,
@@ -197,6 +205,20 @@ export function MobilePlayer() {
   } = usePlayer(filteredTracks, persistedDislikedTracks);
 
   const audioController = useAudioController();
+  const pitchControl = usePitch();
+  const { getDirectAudioUrl } = useDirectAudio();
+
+  // Phase A1 — direct-audio engine state. When a direct stream (yt-dlp/Invidious)
+  // resolves for the current video, the <audio> element replaces the YT iframe.
+  const [directAudioUrl, setDirectAudioUrl] = useState<string | null>(null);
+  const [directDuration, setDirectDuration] = useState(0);
+  // Engine-handoff positions: iframe→direct on probe success, direct→iframe on
+  // stream failure. Both resume at the elapsed position instead of 0:00.
+  const [directHandoffTime, setDirectHandoffTime] = useState(0);
+  const iframeResumeAtRef = useRef(0);
+  const directAudioRef = useRef<DirectAudioPlayerRef | null>(null);
+  const directFailedIds = useRef<Set<string>>(new Set());
+  const directConsecutiveFails = useRef(0);
 
   // When all CSV data is cleared, stop playback and return to title screen
   useEffect(() => {
@@ -511,6 +533,47 @@ export function MobilePlayer() {
     }
   }, [playerDuration, currentTrack, applyTrackPatch]);
 
+  // Phase A1 — probe for a direct audio stream whenever the video changes.
+  // The iframe plays immediately (no silent gap); when the probe succeeds the
+  // <audio> engine takes over at the elapsed position. A 5s race bounds the
+  // probe; after 3 consecutive failures the direct path is disabled for the
+  // session (stop paying the probe cost on a cold/blocked backend).
+  useEffect(() => {
+    setDirectAudioUrl(null);
+    setDirectDuration(0);
+    setDirectHandoffTime(0);
+    iframeResumeAtRef.current = 0;
+    if (
+      !currentVideoId ||
+      !hasUserInteracted ||
+      directFailedIds.current.has(currentVideoId) ||
+      directConsecutiveFails.current >= 3
+    ) {
+      return;
+    }
+    let cancelled = false;
+    const timeout = new Promise<null>((resolve) => window.setTimeout(() => resolve(null), 5000));
+    Promise.race([getDirectAudioUrl(currentVideoId), timeout]).then((result) => {
+      if (cancelled) return;
+      if (result?.audioUrl) {
+        directConsecutiveFails.current = 0;
+        // Hand off mid-play: pick up where the iframe currently is.
+        const yt = playerRef.current;
+        const elapsed =
+          yt && typeof yt.getCurrentTime === 'function' ? yt.getCurrentTime() : 0;
+        setDirectHandoffTime(elapsed > 1 ? elapsed : 0);
+        setDirectAudioUrl(result.audioUrl);
+      } else {
+        directFailedIds.current.add(currentVideoId);
+        directConsecutiveFails.current += 1;
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentVideoId, hasUserInteracted, getDirectAudioUrl]);
+
   // Like/dislike handlers
   const handleLikeTrack = useCallback(() => {
     if (!currentTrack) return;
@@ -732,6 +795,53 @@ export function MobilePlayer() {
     if (state === 2) setIsPlaying(false);
   };
 
+  // Phase A1 — direct-audio engine callbacks.
+  const handleDirectEnded = useCallback(() => {
+    skipNext();
+  }, [skipNext]);
+
+  const handleDirectError = useCallback(() => {
+    // Stream URL went bad (expired signature, network) — fall back to the
+    // iframe for this video and never re-probe it this session. Resume at the
+    // elapsed position, not 0:00.
+    iframeResumeAtRef.current = directAudioRef.current?.getCurrentTime() || 0;
+    if (currentVideoId) directFailedIds.current.add(currentVideoId);
+    setDirectAudioUrl(null);
+  }, [currentVideoId]);
+
+  const handleDirectTimeUpdate = useCallback((t: number) => {
+    setCurrentTime(t);
+    const d = directAudioRef.current?.getDuration() || 0;
+    setDirectDuration((prev) => (d > 0 && Math.abs(prev - d) > 1 ? d : prev));
+  }, [setCurrentTime]);
+
+  const handleAudioElement = useCallback((el: HTMLAudioElement | null) => {
+    audioController.attachAudioElement(el);
+    pitchControl.attachAudio(el);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [audioController.attachAudioElement, pitchControl.attachAudio]);
+
+  // Seek routes to whichever engine is live.
+  const handleSeek = useCallback((time: number) => {
+    if (directAudioRef.current && directAudioUrl) {
+      directAudioRef.current.seekTo(time);
+      setCurrentTime(time);
+    } else {
+      seekTo(time);
+    }
+  }, [directAudioUrl, seekTo, setCurrentTime]);
+
+  // Phase A2 — lock-screen metadata + transport.
+  useMediaSession({
+    track: currentTrack,
+    isPlaying,
+    onPlay: play,
+    onPause: pause,
+    onNext: skipNext,
+    onPrev: skipPrev,
+    onSeek: handleSeek,
+  });
+
   const handlePlayerError = useCallback(
     async (code: number) => {
       if (!currentTrack) return;
@@ -744,6 +854,20 @@ export function MobilePlayer() {
       }
 
       if (code !== 150 && code !== 101) return;
+
+      // Phase A3 — before any network re-search, try the already-cached
+      // alternate candidate (youtube2). Free, instant, quota-less.
+      if (!candidateTriedRef.current.has(currentTrack.id)) {
+        candidateTriedRef.current.add(currentTrack.id);
+        const cachedAlt = (currentTrack.youtubeCandidates || []).find(
+          (id) => id && id !== currentVideoId
+        );
+        if (cachedAlt) {
+          setCurrentVideoId(cachedAlt);
+          applyTrackPatch(currentTrack.id, { youtubeId: cachedAlt, workingStatus: 'working' });
+          return;
+        }
+      }
 
       if (fallbackAttemptedRef.current.has(currentTrack.id)) {
         // Already tried fallback, keep track in list but skip.
@@ -766,7 +890,7 @@ export function MobilePlayer() {
       applyTrackPatch(currentTrack.id, { workingStatus: 'non_working' });
       skipNext();
     },
-    [currentTrack, searchForVideo, skipNext, applyTrackPatch]
+    [currentTrack, currentVideoId, searchForVideo, skipNext, applyTrackPatch]
   );
 
   // Demo mode helper - open current track in YouTube
@@ -1045,10 +1169,28 @@ export function MobilePlayer() {
         {/* Timeline */}
         <MobileTimeline
           currentTime={currentTime}
-          duration={playerDuration || currentTrack?.duration || 0}
-          onSeek={seekTo}
+          duration={
+            directAudioUrl
+              ? directDuration || currentTrack?.duration || 0
+              : playerDuration || currentTrack?.duration || 0
+          }
+          onSeek={handleSeek}
           trackId={currentTrack?.id}
         />
+
+        {/* Phase A5 — ±8% pitch fader (turntable behavior; direct-audio only,
+            the YT iframe can't do continuous rates) */}
+        {directAudioUrl && (
+          <div className="px-1 pt-1 shrink-0">
+            <PitchSlider
+              pitch={pitchControl.pitch}
+              onChange={pitchControl.setPitch}
+              onReset={pitchControl.resetPitch}
+              color={pitchControl.pitchColor}
+              compact
+            />
+          </div>
+        )}
 
         {/* Divider + deliberate space before transport — transport sits ~8% higher */}
         <div className="border-t border-border/50 mt-1.5 mb-1 shrink-0" />
@@ -1101,19 +1243,41 @@ export function MobilePlayer() {
 
       </main>
 
-      {/* Hidden YouTube player */}
-      <div className="fixed opacity-0 pointer-events-none" style={{ width: '320px', height: '180px', bottom: '-300px', right: 0 }}>
-        <YouTubePlayer
-          videoId={currentVideoId || currentTrack?.youtubeId || ''}
-          searchQuery={!currentVideoId && !currentTrack?.youtubeId && currentTrack ? `${currentTrack.artist} ${currentTrack.title}` : undefined}
+      {/* Hidden audio engine — the iframe plays immediately so there is never
+          a silent gap; the direct <audio> stream (Phase A1) takes over at the
+          elapsed position once its probe resolves. Mutually exclusive mounts. */}
+      {directAudioUrl ? (
+        <DirectAudioPlayer
+          ref={directAudioRef}
+          audioUrl={directAudioUrl}
           isPlaying={isPlaying}
-          showVideo={false}
-          playerRef={playerRef}
-          onStateChange={handlePlayerStateChange}
-          onError={handlePlayerError}
-          onReady={() => {}}
+          initialSeek={directHandoffTime}
+          onEnded={handleDirectEnded}
+          onError={handleDirectError}
+          onTimeUpdate={handleDirectTimeUpdate}
+          onAudioElement={handleAudioElement}
         />
-      </div>
+      ) : (
+        <div className="fixed opacity-0 pointer-events-none" style={{ width: '320px', height: '180px', bottom: '-300px', right: 0 }}>
+          <YouTubePlayer
+            videoId={currentVideoId || currentTrack?.youtubeId || ''}
+            searchQuery={!currentVideoId && !currentTrack?.youtubeId && currentTrack ? `${currentTrack.artist} ${currentTrack.title}` : undefined}
+            isPlaying={isPlaying}
+            showVideo={false}
+            playerRef={playerRef}
+            onStateChange={handlePlayerStateChange}
+            onError={handlePlayerError}
+            onReady={() => {
+              audioController.attachYTPlayer(playerRef.current);
+              // direct→iframe failover: resume where the audio stream died
+              if (iframeResumeAtRef.current > 1 && typeof playerRef.current?.seekTo === 'function') {
+                playerRef.current.seekTo(iframeResumeAtRef.current, true);
+                iframeResumeAtRef.current = 0;
+              }
+            }}
+          />
+        </div>
+      )}
 
       {/* Playlist sheet */}
       <MobilePlaylistSheet

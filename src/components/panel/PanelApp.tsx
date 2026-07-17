@@ -16,6 +16,7 @@ import { useCrates } from '@/hooks/useCrates';
 import { useMarketplace } from '@/hooks/useMarketplace';
 import { useDiscogsAuth } from '@/hooks/useDiscogsAuth';
 import { useDiscogsData } from '@/hooks/useDiscogsData';
+import { usePitch } from '@/hooks/usePitch';
 import { CompactPlayer } from './CompactPlayer';
 import { NowPlayingView } from './NowPlayingView';
 import { CratesView } from './CratesView';
@@ -101,24 +102,42 @@ export function PanelApp() {
 
   const { openMarketplacePage } = useMarketplace();
 
+  // Single pitch controller lifted here so CompactPlayer and NowPlayingView
+  // share one instance instead of fighting over the same YT player.
+  const pitchControl = usePitch();
+
+  // Keep the latest skipNext in a ref so the auto-skip timeout below never
+  // fires a stale closure.
+  const skipNextRef = useRef(skipNext);
+  useEffect(() => { skipNextRef.current = skipNext; });
+
   const autoSkipRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     if (!currentTrack) return;
     if (autoSkipRef.current) clearTimeout(autoSkipRef.current);
     if (!currentTrack.youtubeId && currentTrack.workingStatus !== 'pending') {
-      autoSkipRef.current = setTimeout(() => skipNext(), 3000);
+      autoSkipRef.current = setTimeout(() => skipNextRef.current(), 3000);
     }
     return () => { if (autoSkipRef.current) clearTimeout(autoSkipRef.current); };
   }, [currentTrack?.id]);
 
+  // Auto-select the track for the Discogs release the panel is currently on.
+  // Re-runs when the tracks array grows (collection may load after the panel
+  // opens on a release page); a ref guards against re-selecting the same
+  // release repeatedly.
+  const lastAutoSelectedRef = useRef<number | null>(null);
   useEffect(() => {
     if (!currentRelease || !settings.autoLoadRelease) return;
     const releaseTrack = allTracks.find(t => t.discogsReleaseId === currentRelease.releaseId);
     if (releaseTrack) {
+      if (lastAutoSelectedRef.current === currentRelease.releaseId) return;
       const idx = playlist.findIndex(t => t.id === releaseTrack.id);
-      if (idx !== -1 && idx !== currentIndex) selectTrack(idx);
+      if (idx !== -1 && idx !== currentIndex) {
+        lastAutoSelectedRef.current = currentRelease.releaseId;
+        selectTrack(idx);
+      }
     }
-  }, [currentRelease?.releaseId, settings.autoLoadRelease]);
+  }, [currentRelease?.releaseId, settings.autoLoadRelease, allTracks.length]);
 
   useEffect(() => {
     if (currentTrack?.source === 'wantlist' && settings.openReleaseInBrowser && currentTrack.discogsReleaseId) {
@@ -253,6 +272,7 @@ export function PanelApp() {
         onSeek={seekTo}
         onToggleShuffle={toggleShuffle}
         showPitch={settings.pitchEnabled}
+        pitchControl={pitchControl}
         ytPlayerRef={playerRef}
       />
 
@@ -291,6 +311,7 @@ export function PanelApp() {
             showPitch={settings.pitchEnabled}
             onSelectTrack={selectTrack}
             onPlay={play}
+            pitchControl={pitchControl}
             ytPlayerRef={playerRef}
           />
         )}

@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Track } from '@/types/track';
 import { Music, Heart, ShoppingCart, Disc3, User, Ban, Search } from 'lucide-react';
 import { useSettings } from '@/hooks/useSettings';
+import { useWantlistPrices } from '@/hooks/useWantlistPrices';
 import { SourceType } from './SourceFilters';
 
 interface MobilePlaylistSheetProps {
@@ -55,6 +56,26 @@ export function MobilePlaylistSheet({
       )
     : playlist;
 
+  // Phase B1 — wantlist marketplace prices. requestPrices dedupes internally
+  // and throttles to ~1 req/s; only fetch while the sheet is actually open,
+  // capped so a huge wantlist doesn't queue an hour of lookups.
+  const { getPriceForRelease, requestPrices } = useWantlistPrices();
+  useEffect(() => {
+    if (!isOpen) return;
+    const ids = playlist
+      .filter((t) => t.source === 'wantlist' && t.discogsReleaseId)
+      .map((t) => t.discogsReleaseId as number)
+      .slice(0, 40);
+    if (ids.length) requestPrices(ids);
+  }, [isOpen, playlist, requestPrices]);
+
+  // Phase A4 — total runtime of the visible queue (DJs think in minutes, not
+  // track counts). Formats as h:mm for hour+ crates, m:ss below that.
+  const totalSeconds = displayedPlaylist.reduce((sum, t) => sum + (t.duration || 0), 0);
+  const totalRuntime = totalSeconds >= 3600
+    ? `${Math.floor(totalSeconds / 3600)}h ${String(Math.floor((totalSeconds % 3600) / 60)).padStart(2, '0')}m`
+    : `${Math.floor(totalSeconds / 60)}:${String(Math.floor(totalSeconds % 60)).padStart(2, '0')}`;
+
   const sortedPlaylist = sortBy === 'none'
     ? displayedPlaylist
     : [...displayedPlaylist].sort((a, b) => {
@@ -95,7 +116,10 @@ export function MobilePlaylistSheet({
           </SheetTitle>
           {/* Track count + user info */}
           <div className="flex items-center gap-3 pt-0.5">
-            <p className="text-xs text-muted-foreground">{playlist.length} tracks in queue</p>
+            <p className="text-xs text-muted-foreground">
+              {playlist.length} tracks in queue
+              {totalSeconds > 0 && <span className="text-muted-foreground/70"> · {totalRuntime}</span>}
+            </p>
             {isDiscogsAuthenticated && discogsUsername && (
               <span className="flex items-center gap-1 text-xs text-muted-foreground">
                 <span className="text-success">●</span>
@@ -222,6 +246,17 @@ export function MobilePlaylistSheet({
                       </p>
                       <p className={`${isTight ? 'text-[10px]' : 'text-xs'} text-muted-foreground truncate leading-tight`}>{track.artist}</p>
                     </div>
+
+                    {/* Phase B1 — wantlist lowest-price badge */}
+                    {track.source === 'wantlist' && track.discogsReleaseId ? (() => {
+                      const stats = getPriceForRelease(track.discogsReleaseId);
+                      return stats && stats.lowestPrice != null ? (
+                        <span className="text-[9px] font-mono text-success shrink-0" title={`${stats.numForSale} for sale`}>
+                          {stats.currency === 'USD' ? '$' : `${stats.currency} `}
+                          {stats.lowestPrice.toFixed(stats.lowestPrice >= 100 ? 0 : 2)}
+                        </span>
+                      ) : null;
+                    })() : null}
 
                     {/* Source indicator */}
                     <div className="text-muted-foreground shrink-0">

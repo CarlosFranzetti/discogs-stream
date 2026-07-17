@@ -26,7 +26,7 @@ export function useCrates() {
       updatedAt: Date.now(),
       color,
     };
-    await dbSet('crates', crate);
+    await dbSet('crates', crate).catch(err => console.error('[db] persist failed', err));
     setCrates(prev => [crate, ...prev]);
     return crate;
   }, []);
@@ -35,13 +35,13 @@ export function useCrates() {
     setCrates(prev => {
       const updated = prev.map(c => c.id === id ? { ...c, name, updatedAt: Date.now() } : c);
       const crate = updated.find(c => c.id === id);
-      if (crate) dbSet('crates', crate);
+      if (crate) dbSet('crates', crate).catch(err => console.error('[db] persist failed', err));
       return updated;
     });
   }, []);
 
   const deleteCrate = useCallback(async (id: string) => {
-    await dbDelete('crates', id);
+    await dbDelete('crates', id).catch(err => console.error('[db] persist failed', err));
     setCrates(prev => prev.filter(c => c.id !== id));
   }, []);
 
@@ -52,7 +52,7 @@ export function useCrates() {
         const already = c.releases.some(r => r.id === release.id);
         if (already) return c;
         const updatedCrate = { ...c, releases: [...c.releases, release], updatedAt: Date.now() };
-        dbSet('crates', updatedCrate);
+        dbSet('crates', updatedCrate).catch(err => console.error('[db] persist failed', err));
         return updatedCrate;
       });
       return updated;
@@ -64,7 +64,7 @@ export function useCrates() {
       const updated = prev.map(c => {
         if (c.id !== crateId) return c;
         const updatedCrate = { ...c, releases: c.releases.filter(r => r.id !== releaseId), updatedAt: Date.now() };
-        dbSet('crates', updatedCrate);
+        dbSet('crates', updatedCrate).catch(err => console.error('[db] persist failed', err));
         return updatedCrate;
       });
       return updated;
@@ -82,7 +82,7 @@ export function useCrates() {
           return true;
         });
         const updatedCrate = { ...c, releases: deduped, updatedAt: Date.now() };
-        dbSet('crates', updatedCrate);
+        dbSet('crates', updatedCrate).catch(err => console.error('[db] persist failed', err));
         return updatedCrate;
       });
       return updated;

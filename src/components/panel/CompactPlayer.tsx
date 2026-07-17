@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 import { Track } from '@/types/track';
 import { PitchSlider } from './PitchSlider';
-import { usePitch } from '@/hooks/usePitch';
+import { PitchControl } from '@/hooks/usePitch';
 
 interface CompactPlayerProps {
   track: Track | null;
@@ -22,6 +22,7 @@ interface CompactPlayerProps {
   onAddToCrate?: () => void;
   onAddToPlaylist?: () => void;
   showPitch?: boolean;
+  pitchControl: PitchControl;
   audioRef?: React.RefObject<HTMLAudioElement | null>;
   ytPlayerRef?: React.RefObject<YT.Player | null>;
 }
@@ -47,10 +48,11 @@ export function CompactPlayer({
   onAddToCrate,
   onAddToPlaylist,
   showPitch = true,
+  pitchControl,
   audioRef,
   ytPlayerRef,
 }: CompactPlayerProps) {
-  const { pitch, setPitch, resetPitch, pitchColor, attachAudio, attachYouTube } = usePitch();
+  const { pitch, setPitch, resetPitch, pitchColor, attachAudio, attachYouTube } = pitchControl;
   const [volume, setVolume] = useState(1);
   const [muted, setMuted] = useState(false);
   const [liked, setLiked] = useState(false);
@@ -64,10 +66,21 @@ export function CompactPlayer({
   }, [ytPlayerRef, attachYouTube]);
 
   useEffect(() => {
+    // Direct-audio path (future): HTML5 <audio> uses 0..1 volume.
     if (audioRef?.current) {
       audioRef.current.volume = muted ? 0 : volume;
     }
-  }, [volume, muted, audioRef]);
+    // YouTube IFrame player: setVolume expects 0..100, plus mute/unMute.
+    const yt = ytPlayerRef?.current;
+    if (yt) {
+      if (typeof yt.setVolume === 'function') yt.setVolume(Math.round((muted ? 0 : volume) * 100));
+      if (muted) {
+        if (typeof yt.mute === 'function') yt.mute();
+      } else {
+        if (typeof yt.unMute === 'function') yt.unMute();
+      }
+    }
+  }, [volume, muted, audioRef, ytPlayerRef]);
 
   const pct = duration > 0 ? (currentTime / duration) * 100 : 0;
 

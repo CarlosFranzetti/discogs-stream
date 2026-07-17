@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Disc3, Music, ListMusic, ExternalLink, RefreshCw } from 'lucide-react';
 import { Track } from '@/types/track';
 import { PitchSlider } from './PitchSlider';
-import { usePitch } from '@/hooks/usePitch';
+import { PitchControl } from '@/hooks/usePitch';
 
 interface NowPlayingViewProps {
   track: Track | null;
@@ -13,6 +13,7 @@ interface NowPlayingViewProps {
   showPitch: boolean;
   onSelectTrack: (index: number) => void;
   onPlay: () => void;
+  pitchControl: PitchControl;
   audioRef?: React.RefObject<HTMLAudioElement | null>;
   ytPlayerRef?: React.RefObject<YT.Player | null>;
 }
@@ -26,10 +27,11 @@ export function NowPlayingView({
   showPitch,
   onSelectTrack,
   onPlay,
+  pitchControl,
   audioRef,
   ytPlayerRef,
 }: NowPlayingViewProps) {
-  const { pitch, setPitch, resetPitch, pitchColor, attachAudio, attachYouTube } = usePitch();
+  const { pitch, setPitch, resetPitch, pitchColor, attachAudio, attachYouTube } = pitchControl;
   const [search, setSearch] = useState('');
 
   React.useEffect(() => {

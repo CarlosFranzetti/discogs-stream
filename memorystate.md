@@ -19,6 +19,39 @@
 4. ⏳ Still open: set a dedicated `SESSION_SECRET` on edge functions (currently falls back to service-role key)
 5. ✅ Live guard verification against prod: rescan w/o service key → 401; username-key track-cache upsert w/o session → 401; `csv-*` upsert+delete roundtrip → ok (test row cleaned up)
 
+## Phased Roadmap (2026-07-17 — ALL feature ideas are committed for eventual implementation, per Carlos)
+
+**Phase A — Audio engine (IN PROGRESS 2026-07-17)**
+- A1. Direct audio (yt-dlp/Invidious → HTML5 `<audio>`) into MobilePlayer, iframe fallback kept
+- A2. Media Session API (lock-screen artwork + transport)
+- A3. Quick win: candidate-failover (try cached `youtube2` before re-searching on error 150/101)
+- A4. Quick win: set-length totals (total runtime wherever track counts show)
+- A5. ±8% pitch fader with slider in the PWA (usePitch + audio playbackRate, preservesPitch=false for true vinyl behavior) — AFTER A1
+
+**Phase B — Collector surfaces (B1 IN PROGRESS 2026-07-17)**
+- B1. Wantlist price awareness in PWA (port extension `useMarketplace.getBulkStats` + price badges)
+- B2. Crate-digging filters (genre/style/label/year/country chips in playlist sheet)
+- B3. Cue preview mode (long-press row → low-volume preview stream; needs A1)
+- B4. Wire `'similar'` source end-to-end (extension similar-releases → playable tracks)
+
+**Phase C — Unification & structure**
+- C1. Extension ↔ PWA state bridge (crates/playlists/carts: JSON export/import first, Supabase tables later)
+- C2. One shared virtualized playlist component (MobilePlaylistSheet + NowPlayingView)
+- C3. Shared THEMES + SourceType constants module; finish SourceType consolidation into types/track.ts
+- C4. Bandcamp: restore behind Settings flag or strip plumbing (decide once, apply to both surfaces)
+
+**Phase D — Performance & delivery**
+- D1. Code-splitting (lazy /auth + /library, manualChunks; consider both Vite entries)
+- D2. Virtualization perf pass on 2k+ collections
+- D3. PWA offline shell (service worker + cover cache)
+- D4. CI gate (npm ci, test, lint, **typecheck**, build) — GitHub Action
+
+**Phase E — Hardening & quality**
+- E1. Scheduler tests (fake-timer specs for useBackgroundVerifier, usePlayer invariants)
+- E2. Cover-art write path via edge fn + RLS lockdown of release_cover_art
+- E3. Dedicated SESSION_SECRET env (remove service-role fallback)
+- E4. Tighten CSP once C4 decided
+
 ## Suggestions — v2 (2026-07-17, Sonnet deep-dive re-rank; carried between loop cycles)
 
 ### Top priorities (re-ranked with the Chrome extension in the picture)
@@ -54,6 +87,24 @@
 10. **Cover-art write path** — move `release_cover_art` writes behind `discogs-public`, then service-role-lock its RLS (closes the last world-writable table).
 
 ## Log
+
+### 2026-07-17 — Parallel agents landed; B1 wired; SECRET LEAK caught & fixed in prod
+- **Opus agent #1 (extension)**: all 6 review findings fixed — CompactPlayer volume/mute now drives the YT player; single `usePitch` lifted into PanelApp (new `PitchControl` type) passed to CompactPlayer + NowPlayingView; auto-load effect re-runs when tracks arrive (with once-per-release guard); `.catch` on every dbSet/dbDelete in crates/playlists/carts; no-empty lint error fixed; auto-skip uses `skipNextRef`. typecheck/lint/test/build/build:extension all green.
+- **Opus agent #2 (marketplace/CI)**: `discogs-public` now handles `{path}` with a strict whitelist (`/marketplace/stats/\d+`, `/database/search?` with param whitelist q/type/genre/style/year/format/per_page), 24h cache under `discogs-public:path:*` keys; new `useWantlistPrices` hook (1 req/s queue, dedupe, Map+version); `.github/workflows/ci.yml` (npm ci → test → lint → typecheck → build).
+- **B1 UI (main agent)**: playlist sheet requests prices for open-sheet wantlist rows (cap 40) and shows lowest-price badges (`$X.XX`, tooltip = num for sale).
+- **Deployed + E2E-tested `discogs-public`**: stats ✓ (real data), search ✓, non-whitelisted path → 400 ✓, legacy release_id ✓.
+- **🔴 Security catch during E2E**: Discogs echoes the request query string — including our consumer key+secret — back in `pagination.urls`, and the proxy passed it straight to clients (and into the 24h cache). Fixed (strip `pagination.urls` before cache/response), tainted cache rows purged via SQL, redeployed, re-tested clean. ⚠️ Recommend rotating the Discogs consumer secret (was exposed for ~minutes on a just-created endpoint).
+- Dedicated Sonnet error-checker now reviewing the full uncommitted diff before ship.
+
+### 2026-07-17 — Phase A IMPLEMENTED (direct audio, Media Session, failover, totals, pitch) + parallel agents dispatched
+- **A1**: `useDirectAudio` + `DirectAudioPlayer` restored from git history (with new `onAudioElement` callback + `preservesPitch=false` turntable behavior). MobilePlayer now probes yt-dlp/Invidious per video (5s race, per-video failure memory, session-off after 3 consecutive fails) and mounts `<audio>` instead of the YT iframe when a direct stream resolves; iframe remains the fallback engine. Seek/duration/ended routed per engine.
+- **A2**: new `useMediaSession` hook — lock-screen metadata/artwork + play/pause/next/prev/seekto handlers.
+- **A3**: `handlePlayerError` now tries the cached `youtubeCandidates` alternate (youtube2) before any network re-search (new `candidateTriedRef` stage before the search stage).
+- **A4**: playlist sheet header shows total runtime of the visible queue (h:mm / m:ss).
+- **A5**: ±8% `PitchSlider` (shared with extension) rendered under the timeline when the direct engine is live; single `usePitch` instance attached via `onAudioElement`.
+- **Parallel agents (per Carlos)**: Opus agent #1 fixing the 6 extension review findings (CompactPlayer volume, pitch-state lift into PanelApp, auto-load deps, IndexedDB catches, no-empty lint error, stale skipNext); Opus agent #2 fixing the discogs-public `{path}` contract (HIGH — marketplace/similar dead) + `useWantlistPrices` hook + CI workflow. A dedicated Sonnet error-checker runs after they land.
+- **Sonnet review pass 2 findings (7)**: logged; #1/#2 assigned to agents; remainder in agents' scope. Review also confirmed clean: discogsSync, discogs-auth/api, youtube-search chain, core hooks.
+- Verified mid-flight: typecheck 0 errors, tests 9/9.
 
 ### 2026-07-17 — Suggestions subagent returned: found a P0 panel crash + a broken typecheck; all 9 type errors fixed
 - **The root `tsc --noEmit` was checking NOTHING** (`tsconfig.json` has `files: []`) — every earlier "tsc clean" was hollow. Added `npm run typecheck` → `tsc -p tsconfig.app.json --noEmit` (now genuinely 0 errors).

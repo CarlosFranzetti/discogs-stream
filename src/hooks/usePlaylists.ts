@@ -26,7 +26,7 @@ export function usePlaylists() {
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
-    await dbSet('playlists', pl);
+    await dbSet('playlists', pl).catch(err => console.error('[db] persist failed', err));
     setPlaylists(prev => [pl, ...prev]);
     return pl;
   }, []);
@@ -35,13 +35,13 @@ export function usePlaylists() {
     setPlaylists(prev => {
       const updated = prev.map(p => p.id === id ? { ...p, name, updatedAt: Date.now() } : p);
       const pl = updated.find(p => p.id === id);
-      if (pl) dbSet('playlists', pl);
+      if (pl) dbSet('playlists', pl).catch(err => console.error('[db] persist failed', err));
       return updated;
     });
   }, []);
 
   const deletePlaylist = useCallback(async (id: string) => {
-    await dbDelete('playlists', id);
+    await dbDelete('playlists', id).catch(err => console.error('[db] persist failed', err));
     setPlaylists(prev => prev.filter(p => p.id !== id));
   }, []);
 
@@ -52,7 +52,7 @@ export function usePlaylists() {
         const already = p.tracks.some(t => t.id === track.id);
         if (already) return p;
         const updatedPl = { ...p, tracks: [...p.tracks, track], updatedAt: Date.now() };
-        dbSet('playlists', updatedPl);
+        dbSet('playlists', updatedPl).catch(err => console.error('[db] persist failed', err));
         return updatedPl;
       });
       return updated;
@@ -64,7 +64,7 @@ export function usePlaylists() {
       const updated = prev.map(p => {
         if (p.id !== playlistId) return p;
         const updatedPl = { ...p, tracks: p.tracks.filter(t => t.id !== trackId), updatedAt: Date.now() };
-        dbSet('playlists', updatedPl);
+        dbSet('playlists', updatedPl).catch(err => console.error('[db] persist failed', err));
         return updatedPl;
       });
       return updated;
@@ -76,7 +76,7 @@ export function usePlaylists() {
       const updated = prev.map(p => {
         if (p.id !== playlistId) return p;
         const updatedPl = { ...p, tracks, updatedAt: Date.now() };
-        dbSet('playlists', updatedPl);
+        dbSet('playlists', updatedPl).catch(err => console.error('[db] persist failed', err));
         return updatedPl;
       });
       return updated;
@@ -95,7 +95,7 @@ export function usePlaylists() {
           return true;
         });
         const updatedPl = { ...p, tracks: deduped, updatedAt: Date.now() };
-        dbSet('playlists', updatedPl);
+        dbSet('playlists', updatedPl).catch(err => console.error('[db] persist failed', err));
         return updatedPl;
       });
       return updated;
