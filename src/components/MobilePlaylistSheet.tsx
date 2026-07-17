@@ -1,11 +1,29 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Track } from '@/types/track';
-import { Music, Heart, ShoppingCart, Disc3, User, Ban, Search } from 'lucide-react';
+import { Music, Heart, ShoppingCart, Disc3, User, Ban, Search, Filter, X } from 'lucide-react';
 import { useSettings } from '@/hooks/useSettings';
 import { useWantlistPrices } from '@/hooks/useWantlistPrices';
 import { SourceType } from './SourceFilters';
+
+// Phase B2 — crate-digging facets. Values come off the Track fields that are
+// already cached per track (styles fold into `genre` at ingest; year is
+// bucketed into decades so the chip row stays short).
+type FacetKey = 'genre' | 'label' | 'decade' | 'country';
+type FacetSelections = Record<FacetKey, string[]>;
+
+const EMPTY_FACETS: FacetSelections = { genre: [], label: [], decade: [], country: [] };
+const FACET_CHIP_CAP = 12;
+
+function facetValue(track: Track, facet: FacetKey): string | undefined {
+  switch (facet) {
+    case 'genre': return track.genre && track.genre !== 'Unknown' ? track.genre : undefined;
+    case 'label': return track.label && track.label !== 'Unknown' ? track.label : undefined;
+    case 'decade': return track.year ? `${Math.floor(track.year / 10) * 10}s` : undefined;
+    case 'country': return track.country || undefined;
+  }
+}
 
 interface MobilePlaylistSheetProps {
   isOpen: boolean;
@@ -41,6 +59,8 @@ export function MobilePlaylistSheet({
   const retryingId = null;
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<'none' | 'artist' | 'title' | 'genre'>('none');
+  const [showFilters, setShowFilters] = useState(false);
+  const [facetSelections, setFacetSelections] = useState<FacetSelections>(EMPTY_FACETS);
   const { settings } = useSettings();
   const isTight = settings.playlistSize === 'tight';
 
@@ -49,12 +69,50 @@ export function MobilePlaylistSheet({
   const hasWantlist = playlist.some(t => t.source === 'wantlist');
   const showSourceFilter = (hasCollection && hasWantlist) && activeSources !== undefined;
 
-  const displayedPlaylist = searchQuery.trim()
-    ? playlist.filter(t =>
-        t.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        t.artist.toLowerCase().includes(searchQuery.toLowerCase())
-      )
-    : playlist;
+  // Phase B2 — distinct chip values per facet, most-frequent first, capped so
+  // a 2k-track collection with hundreds of labels stays a chip row, not a wall.
+  const facetOptions = useMemo(() => {
+    const options = {} as Record<FacetKey, { value: string; count: number }[]>;
+    for (const facet of ['genre', 'label', 'decade', 'country'] as FacetKey[]) {
+      const counts = new Map<string, number>();
+      for (const track of playlist) {
+        const value = facetValue(track, facet);
+        if (value) counts.set(value, (counts.get(value) || 0) + 1);
+      }
+      options[facet] = [...counts.entries()]
+        .map(([value, count]) => ({ value, count }))
+        .sort((a, b) => b.count - a.count || a.value.localeCompare(b.value))
+        .slice(0, FACET_CHIP_CAP);
+    }
+    return options;
+  }, [playlist]);
+
+  const activeFacetCount = Object.values(facetSelections).reduce((n, sel) => n + sel.length, 0);
+
+  const toggleFacetValue = (facet: FacetKey, value: string) => {
+    setFacetSelections(prev => ({
+      ...prev,
+      [facet]: prev[facet].includes(value)
+        ? prev[facet].filter(v => v !== value)
+        : [...prev[facet], value],
+    }));
+  };
+
+  // OR within a facet, AND across facets. Display-only, like search — the
+  // real playlist indices are preserved for onSelectTrack.
+  const matchesFacets = (track: Track) =>
+    (Object.entries(facetSelections) as [FacetKey, string[]][]).every(([facet, selected]) => {
+      if (selected.length === 0) return true;
+      const value = facetValue(track, facet);
+      return value !== undefined && selected.includes(value);
+    });
+
+  const displayedPlaylist = playlist.filter(t =>
+    (!searchQuery.trim() ||
+      t.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      t.artist.toLowerCase().includes(searchQuery.toLowerCase())) &&
+    (activeFacetCount === 0 || matchesFacets(t))
+  );
 
   // Phase B1 — wantlist marketplace prices. requestPrices dedupes internally
   // and throttles to ~1 req/s; only fetch while the sheet is actually open,
@@ -117,7 +175,9 @@ export function MobilePlaylistSheet({
           {/* Track count + user info */}
           <div className="flex items-center gap-3 pt-0.5">
             <p className="text-xs text-muted-foreground">
-              {playlist.length} tracks in queue
+              {displayedPlaylist.length !== playlist.length
+                ? `${displayedPlaylist.length} of ${playlist.length} tracks`
+                : `${playlist.length} tracks in queue`}
               {totalSeconds > 0 && <span className="text-muted-foreground/70"> · {totalRuntime}</span>}
             </p>
             {isDiscogsAuthenticated && discogsUsername && (
@@ -162,6 +222,18 @@ export function MobilePlaylistSheet({
                 {key.charAt(0).toUpperCase() + key.slice(1)}
               </button>
             ))}
+            {/* Phase B2 — crate-digging filter toggle */}
+            <button
+              onClick={() => setShowFilters(prev => !prev)}
+              className={`px-2 py-0.5 rounded-full text-[10px] border transition-colors flex items-center gap-1 ${
+                showFilters || activeFacetCount > 0
+                  ? 'bg-primary/15 text-primary border-primary'
+                  : 'bg-muted text-muted-foreground border-transparent'
+              }`}
+            >
+              <Filter className="w-2.5 h-2.5" />
+              Filter{activeFacetCount > 0 ? ` (${activeFacetCount})` : ''}
+            </button>
             {showSourceFilter && (
               <>
                 <div className="w-px bg-border mx-0.5 self-stretch" />
@@ -184,6 +256,51 @@ export function MobilePlaylistSheet({
               </>
             )}
           </div>
+
+          {/* Phase B2 — facet chip rows (genre / label / decade / country).
+              OR within a row, AND across rows; display-only filtering. */}
+          {showFilters && (
+            <div className="mt-2 space-y-1.5">
+              {(['genre', 'label', 'decade', 'country'] as FacetKey[]).map((facet) => {
+                const options = facetOptions[facet];
+                if (options.length < 2 && facetSelections[facet].length === 0) return null;
+                return (
+                  <div key={facet} className="flex items-start gap-1.5">
+                    <span className="text-[9px] uppercase tracking-wide text-muted-foreground/70 w-12 shrink-0 pt-1">
+                      {facet}
+                    </span>
+                    <div className="flex gap-1 flex-wrap min-w-0">
+                      {options.map(({ value, count }) => {
+                        const active = facetSelections[facet].includes(value);
+                        return (
+                          <button
+                            key={value}
+                            onClick={() => toggleFacetValue(facet, value)}
+                            className={`px-1.5 py-0.5 rounded-full text-[9px] border transition-colors max-w-[140px] truncate ${
+                              active
+                                ? 'bg-primary/15 text-primary border-primary'
+                                : 'bg-muted text-muted-foreground border-transparent'
+                            }`}
+                            title={`${value} (${count})`}
+                          >
+                            {value} <span className="opacity-60">{count}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+              {activeFacetCount > 0 && (
+                <button
+                  onClick={() => setFacetSelections(EMPTY_FACETS)}
+                  className="flex items-center gap-1 text-[9px] text-muted-foreground hover:text-foreground transition-colors ml-[54px]"
+                >
+                  <X className="w-2.5 h-2.5" /> Clear filters
+                </button>
+              )}
+            </div>
+          )}
         </div>
 
         <ScrollArea className="flex-1">

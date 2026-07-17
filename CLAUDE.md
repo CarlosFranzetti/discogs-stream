@@ -100,9 +100,10 @@ npm run preview
 - `retryingId` local state + `retriedOnce` ref per component tracks retry lifecycle
 - No status text overlaid on cover art — small icon badge only (⊘ for non_working, spinner for retrying)
 
-**Playlist Search** (`MobilePlaylistSheet`):
+**Playlist Search & Crate-Digging Filters** (`MobilePlaylistSheet`):
 - Search bar at the top of the playlist panel filters by title or artist in real time
-- Filtering is display-only; the real playlist indices are preserved for correct `onSelectTrack` calls
+- Filter toggle (funnel chip) expands facet chip rows: genre / label / decade / country, built from the loaded playlist (top 12 values per facet by frequency, with counts). OR within a facet, AND across facets; header shows "X of Y tracks" + filtered runtime. There is no separate style facet — Discogs styles fold into `genre` at ingest
+- All filtering (search + facets) is display-only; the real playlist indices are preserved for correct `onSelectTrack` calls
 
 ### Project Structure
 

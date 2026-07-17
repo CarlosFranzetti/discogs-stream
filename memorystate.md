@@ -3,14 +3,14 @@
 > Living memory log. Updated after every engineering pass (docs → cleanup → review → security → suggestions).
 > Newest entries at the top of the Log. Do not delete old entries; they are the history.
 
-## Current State (last updated: 2026-07-15, Pass 1 COMPLETE — all phases done)
+## Current State (last updated: 2026-07-17, Phase A + B1 SHIPPED; B2 in progress)
 
-- **Branch**: `master`, all changes LOCAL and UNCOMMITTED (user hold: no GitHub push, no Vercel deploy — test first)
-- **Tests**: 9/9 passing · **tsc**: clean · **Lint**: 0 errors / 12 warnings (shadcn boilerplate + 1 intentional deps-array) · **Build**: OK (696 kB bundle, code-splitting is top optimization candidate)
-- **Removed this pass**: 13 dead src files (legacy desktop player tree + orphans), `LEGACY/` (13 files), `run-migration` edge fn — ~27 files total, verified green after each batch
-- **Fixed this pass**: background-verifier timer leak (HIGH), workingStatus cache-reversion (MED), npm lockfile drift (MED), 4 security issues (see Phase 5 log)
-- **Docs**: CLAUDE.md, README.md, PRD.md, TDD.md, docs/CODEBASE-FUNCTIONS.md all synced; memorystate.md (this file) + LOOPY.md created
-- **Live app shape**: single `MobilePlayer` at `/` (YouTube IFrame playback only), `/library` standalone page, `/auth` Discogs OAuth. Direct-audio + Bandcamp exist only as server-side edge fns with no UI consumer.
+- **Branch**: everything COMMITTED and PUSHED — `origin/master` at `4eed9e2` ("Direct-audio engine, Media Session, pitch fader, wantlist prices, extension fixes"); work continues on `claude/check-out-jkrunj` (started from that commit)
+- **Tests**: 9/9 passing · **typecheck** (`tsc -p tsconfig.app.json`): 0 errors · **Lint**: 0 errors / 15 warnings (shadcn boilerplate + 1 intentional deps-array) · **Build**: OK (code-splitting still the top optimization candidate)
+- **Shipped 2026-07-17** (`4eed9e2`, auto-deployed to prod via Vercel Git integration): Phase A complete (A1 direct audio, A2 Media Session, A3 candidate-failover, A4 set-length totals, A5 pitch fader) + B1 wantlist price badges + extension review fixes + `discogs-public` path proxy + CI workflow
+- **Supabase side**: hardening deployed + live-verified 2026-07-17 (RLS migration synced; `track-cache` v7 / `track-media` v6 / `youtube-rescan-weekly` v7; 401 guards verified against prod)
+- **Live app shape**: single `MobilePlayer` at `/` — direct-audio `<audio>` engine (yt-dlp/Invidious probe) with YouTube IFrame fallback; `/library` standalone page, `/auth` Discogs OAuth; Chrome extension side panel shares hooks
+- **Open items**: rotate Discogs consumer secret (brief `pagination.urls` exposure 2026-07-17, leak itself fixed); dedicated `SESSION_SECRET` env (E3); B2 done on `claude/check-out-jkrunj` — next up B3 cue preview / B4 similar-source wiring / C-phase structure work
 
 ### ✅ Deploy-time checklist — COMPLETED 2026-07-17
 1. ✅ RLS migration `20260715000000_lock_down_youtube_videos.sql` applied remotely (found already synced on 2026-07-17)
@@ -21,16 +21,16 @@
 
 ## Phased Roadmap (2026-07-17 — ALL feature ideas are committed for eventual implementation, per Carlos)
 
-**Phase A — Audio engine (IN PROGRESS 2026-07-17)**
+**Phase A — Audio engine (DONE 2026-07-17, shipped in `4eed9e2`)**
 - A1. Direct audio (yt-dlp/Invidious → HTML5 `<audio>`) into MobilePlayer, iframe fallback kept
 - A2. Media Session API (lock-screen artwork + transport)
 - A3. Quick win: candidate-failover (try cached `youtube2` before re-searching on error 150/101)
 - A4. Quick win: set-length totals (total runtime wherever track counts show)
 - A5. ±8% pitch fader with slider in the PWA (usePitch + audio playbackRate, preservesPitch=false for true vinyl behavior) — AFTER A1
 
-**Phase B — Collector surfaces (B1 IN PROGRESS 2026-07-17)**
-- B1. Wantlist price awareness in PWA (port extension `useMarketplace.getBulkStats` + price badges)
-- B2. Crate-digging filters (genre/style/label/year/country chips in playlist sheet)
+**Phase B — Collector surfaces (B1 DONE `4eed9e2`; B2 DONE 2026-07-17 on `claude/check-out-jkrunj`)**
+- B1. ✅ Wantlist price awareness in PWA (port extension `useMarketplace.getBulkStats` + price badges)
+- B2. ✅ Crate-digging filters (genre/label/decade/country chips in playlist sheet — no separate style field on Track; styles fold into `genre` at ingest)
 - B3. Cue preview mode (long-press row → low-volume preview stream; needs A1)
 - B4. Wire `'similar'` source end-to-end (extension similar-releases → playable tracks)
 
@@ -87,6 +87,12 @@
 10. **Cover-art write path** — move `release_cover_art` writes behind `discogs-public`, then service-role-lock its RLS (closes the last world-writable table).
 
 ## Log
+
+### 2026-07-17 — Memorystate synced to post-ship reality; B2 crate-digging filters implemented
+- Current State header rewritten: Pass 1 + Phase A + B1 are committed/pushed/deployed (`4eed9e2` on master), not "local and uncommitted" as the stale header claimed; Phase A marked DONE, B1 checked off
+- **B2 implemented** (`MobilePlaylistSheet`, display-only like search so playlist indices stay correct): funnel chip toggles facet rows — genre / label / decade / country — built from the loaded playlist (top 12 per facet by frequency, counts shown). OR within a facet, AND across facets; active-filter count on the funnel chip; Clear-filters action; header flips to "X of Y tracks" and the A4 runtime total tracks the filtered view. No style facet: Discogs styles fold into `genre` at ingest (`genres[0] || styles[0]`), noted in roadmap
+- Facets with <2 distinct values self-hide (nothing to dig through); 'Unknown' genre/label and year 0 excluded from chips
+- Verified: tests 9/9, typecheck 0 errors, lint 0 errors/15 warnings, build OK. CLAUDE.md filter section updated
 
 ### 2026-07-17 — Parallel agents landed; B1 wired; SECRET LEAK caught & fixed in prod
 - **Opus agent #1 (extension)**: all 6 review findings fixed — CompactPlayer volume/mute now drives the YT player; single `usePitch` lifted into PanelApp (new `PitchControl` type) passed to CompactPlayer + NowPlayingView; auto-load effect re-runs when tracks arrive (with once-per-release guard); `.catch` on every dbSet/dbDelete in crates/playlists/carts; no-empty lint error fixed; auto-skip uses `skipNextRef`. typecheck/lint/test/build/build:extension all green.
