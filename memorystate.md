@@ -12,12 +12,12 @@
 - **Docs**: CLAUDE.md, README.md, PRD.md, TDD.md, docs/CODEBASE-FUNCTIONS.md all synced; memorystate.md (this file) + LOOPY.md created
 - **Live app shape**: single `MobilePlayer` at `/` (YouTube IFrame playback only), `/library` standalone page, `/auth` Discogs OAuth. Direct-audio + Bandcamp exist only as server-side edge fns with no UI consumer.
 
-### ⚠️ Deploy-time checklist (when the user lifts the hold)
-1. `supabase db push` — applies `20260715000000_lock_down_youtube_videos.sql`
-2. `supabase functions deploy track-cache track-media youtube-rescan-weekly` AND deploy the client build in the same window (track-cache writes for OAuth users 401 if client lags; CSV users unaffected)
-3. `supabase functions delete run-migration` — remove the obsolete deployed copy
-4. Optionally set a dedicated `SESSION_SECRET` on edge functions (currently falls back to service-role key)
-5. `deno check` the three edited functions (Deno not installed locally this session)
+### ✅ Deploy-time checklist — COMPLETED 2026-07-17
+1. ✅ RLS migration `20260715000000_lock_down_youtube_videos.sql` applied remotely (found already synced on 2026-07-17)
+2. ✅ `track-cache` v7, `track-media` v6, `youtube-rescan-weekly` v7 deployed (client was already live since 2026-07-15 — backward-compatible order held)
+3. ✅ `run-migration` was never deployed remotely — nothing to delete (repo copy removed in Pass 1)
+4. ⏳ Still open: set a dedicated `SESSION_SECRET` on edge functions (currently falls back to service-role key)
+5. ✅ Live guard verification against prod: rescan w/o service key → 401; username-key track-cache upsert w/o session → 401; `csv-*` upsert+delete roundtrip → ok (test row cleaned up)
 
 ## Suggestions (Phase 6 — carried between loop cycles until accepted/rejected)
 
@@ -36,6 +36,12 @@
 10. **Cover-art write path** — move `release_cover_art` writes behind `discogs-public`, then service-role-lock its RLS (closes the last world-writable table).
 
 ## Log
+
+### 2026-07-17 — Supabase hardening deployed + verified live; suggestions subagent running
+- Deployed `track-cache`/`track-media`/`youtube-rescan-weekly` via `npx supabase functions deploy`; RLS migration was already applied remotely; `run-migration` never existed remotely
+- All three new guards verified against production with curl (401/401/ok — see checklist above)
+- Note: remote `youtube-search`/`invidious-audio`/`yt-dlp-audio` run with `verify_jwt=true` (differs from config.toml's false) — works because the client invokes with the anon-key JWT; leave as-is
+- Background Sonnet subagent dispatched to expand the Suggestions section (re-rank vs the new Chrome extension, add code-grounded candidates)
 
 ### 2026-07-15 — Pass 1 SHIPPED: committed, pushed, auto-deployed to production
 - Local dev server verified in browser (title screen renders, HTTP 200) before ship
