@@ -291,7 +291,6 @@ export function PanelApp() {
             showPitch={settings.pitchEnabled}
             onSelectTrack={selectTrack}
             onPlay={play}
-            audioRef={audioRef}
             ytPlayerRef={playerRef}
           />
         )}

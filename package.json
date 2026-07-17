@@ -13,6 +13,7 @@
     "build:extension": "BUILD_TARGET=extension vite build",
     "build:extension:watch": "BUILD_TARGET=extension vite build --watch",
     "lint": "eslint .",
+    "typecheck": "tsc -p tsconfig.app.json --noEmit",
     "test": "vitest run",
     "preview": "vite preview"
   },

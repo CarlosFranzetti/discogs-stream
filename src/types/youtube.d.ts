@@ -7,6 +7,8 @@ declare namespace YT {
     pauseVideo(): void;
     stopVideo(): void;
     seekTo(seconds: number, allowSeekAhead: boolean): void;
+    setPlaybackRate(suggestedRate: number): void;
+    getPlaybackRate(): number;
     loadVideoById(videoId: string): void;
     getCurrentTime(): number;
     getDuration(): number;
@@ -28,6 +30,7 @@ declare namespace YT {
     height?: string | number;
     width?: string | number;
     videoId?: string;
+    host?: string;
     playerVars?: {
       autoplay?: 0 | 1;
       controls?: 0 | 1;
@@ -37,6 +40,7 @@ declare namespace YT {
       showinfo?: 0 | 1;
       iv_load_policy?: 1 | 3;
       playsinline?: 0 | 1;
+      origin?: string;
     };
     events?: {
       onReady?: (event: PlayerEvent) => void;

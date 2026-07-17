@@ -19,7 +19,25 @@
 4. ⏳ Still open: set a dedicated `SESSION_SECRET` on edge functions (currently falls back to service-role key)
 5. ✅ Live guard verification against prod: rescan w/o service key → 401; username-key track-cache upsert w/o session → 401; `csv-*` upsert+delete roundtrip → ok (test row cleaned up)
 
-## Suggestions (Phase 6 — carried between loop cycles until accepted/rejected)
+## Suggestions — v2 (2026-07-17, Sonnet deep-dive re-rank; carried between loop cycles)
+
+### Top priorities (re-ranked with the Chrome extension in the picture)
+1. **Direct audio + Media Session API into MobilePlayer** (M/L) — now UPGRADED from "nice UX" to "unblocks shipped features": the extension's DJ pitch slider (`usePitch.ts`) is functionally inert against YouTube (±8% snaps to YT's fixed rate set → always 1.0) and only works against a real `<audio>` element. `useAudioController.attachAudioElement` is already built and waiting. Reference impl recoverable: `git show f384d8c^:src/hooks/useDirectAudio.ts`.
+2. **Crate-digging filters** (S/M) — genre/label/year/country fully cached per track but the player only sorts, never filters. Complementary to (not duplicated by) the extension's `useSimilarReleases` marketplace discovery.
+3. **Wantlist price awareness** (now S, was M) — LARGELY BUILT by the extension: port `useMarketplace.getBulkStats` + a price badge into the PWA wantlist rows. Clearest "port, don't rebuild" win.
+4. **Free candidate-failover** (S, NEW) — on YouTube error 150/101, `handlePlayerError` re-searches the network but never tries the already-cached `track.youtubeCandidates[1]` (youtube2 column). Zero-cost, zero-quota retry sitting unused.
+5. **Set-length totals** (S, NEW) — durations are tracked and even corrected from real YT playback, but no surface shows total runtime of a crate/playlist/filtered list. DJs think in minutes, not track counts.
+
+### Structural (both surfaces)
+6. **Unify extension ↔ PWA state** (L; S if scoped to JSON export/import) — extension crates/playlists/carts live in a private IndexedDB (`src/lib/db.ts`), invisible to the Supabase-backed PWA. Crate-dig on discogs.com, can't play it on the phone.
+7. **One virtualized playlist component** (S/M) — the unvirtualized `.map` list now exists TWICE (`MobilePlaylistSheet`, extension `NowPlayingView`).
+8. **Shared THEMES + SourceType constants** (S) — themes and types duplicated between PWA and extension; will drift. (SourceType half fixed 2026-07-17 — MobilePlaylistSheet now imports from SourceFilters; full consolidation into types/track.ts still open. The `'similar'` source is half-wired UI-side and looks intended as the bridge for extension similar-releases → playable tracks.)
+9. **Scheduler tests** (M) — `useBackgroundVerifier` is now imported by BOTH surfaces; a timer regression hits two apps at once.
+10. **CI gate** (S) — MUST use `npm run typecheck` (added 2026-07-15..17), NOT bare `tsc --noEmit`: root tsconfig has `files: []` and checks nothing (this hid 9 real errors including a panel crash until 2026-07-17).
+11. **Cover-art write path lockdown** (S/M) — `release_cover_art` still world-writable by anon; route writes through `discogs-public`, then service-role-lock RLS.
+12. **Code-splitting** (S/M) — 696 kB main bundle; consider both Vite entries (app + extension panel). Also still open: Bandcamp decide-or-strip; PWA offline shell; `SESSION_SECRET` dedicated env.
+
+## Suggestions v1 (2026-07-15, superseded by v2 above — kept for history)
 
 ### Features (DJ/collector lens)
 1. **Rewire direct audio into MobilePlayer** — the yt-dlp/Invidious `<audio>` chain (edge fns already built) gives true background playback on iOS PWA + lock-screen control via **Media Session API** (artwork, prev/next). The single biggest listening-experience win; the removed `DirectAudioPlayer`/`useDirectAudio` in git history are a working reference implementation.
@@ -36,6 +54,13 @@
 10. **Cover-art write path** — move `release_cover_art` writes behind `discogs-public`, then service-role-lock its RLS (closes the last world-writable table).
 
 ## Log
+
+### 2026-07-17 — Suggestions subagent returned: found a P0 panel crash + a broken typecheck; all 9 type errors fixed
+- **The root `tsc --noEmit` was checking NOTHING** (`tsconfig.json` has `files: []`) — every earlier "tsc clean" was hollow. Added `npm run typecheck` → `tsc -p tsconfig.app.json --noEmit` (now genuinely 0 errors).
+- **P0 fixed**: `PanelApp.tsx:294` passed undeclared `audioRef` → ReferenceError crash of the extension's DEFAULT tab on load (prop is optional in NowPlayingView; removed).
+- Also fixed: MobilePlayer media-union narrowing (3 errors — `strict:false` breaks null-discriminant narrowing; used `'youtubeId' in media`), duplicated SourceType (MobilePlaylistSheet now imports from SourceFilters), missing YT typings (`origin`/`host` playerVars, `setPlaybackRate`/`getPlaybackRate`).
+- Suggestions section rewritten as v2 (see above): pitch slider is inert without direct audio (top pick reinforced); wantlist prices now mostly a port job from extension's `useMarketplace`; 2 new S-effort wins (candidate-failover, set-length totals); extension↔PWA state split flagged.
+- Verified: typecheck 0 errors, tests 9/9, build OK.
 
 ### 2026-07-17 — Supabase hardening deployed + verified live; suggestions subagent running
 - Deployed `track-cache`/`track-media`/`youtube-rescan-weekly` via `npx supabase functions deploy`; RLS migration was already applied remotely; `run-migration` never existed remotely

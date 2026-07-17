@@ -4,8 +4,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Track } from '@/types/track';
 import { Music, Heart, ShoppingCart, Disc3, User, Ban, Search } from 'lucide-react';
 import { useSettings } from '@/hooks/useSettings';
-
-type SourceType = 'collection' | 'wantlist';
+import { SourceType } from './SourceFilters';
 
 interface MobilePlaylistSheetProps {
   isOpen: boolean;

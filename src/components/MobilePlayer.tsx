@@ -656,7 +656,9 @@ export function MobilePlayer() {
 
       (async () => {
         const media = await resolveMediaForTrack(currentTrack);
-        if (media.provider === 'youtube' && media.youtubeId) {
+        // 'in' narrowing: with strict:false, the provider===null union member is
+        // not excluded by a discriminant check, so narrow by property presence.
+        if (media.provider === 'youtube' && 'youtubeId' in media && media.youtubeId) {
           return {
             videoId: media.youtubeId,
             youtubeCandidates: media.youtubeCandidates,
