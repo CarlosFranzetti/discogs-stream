@@ -10,7 +10,7 @@ export function QuotaBanner({ onOpenYouTube, showOpenButton = true }: QuotaBanne
     <div className="flex items-center justify-between gap-2 px-3 py-2 bg-amber-500/10 border border-amber-500/20 rounded-lg text-amber-600 dark:text-amber-400">
       <div className="flex items-center gap-2 text-xs">
         <AlertTriangle className="w-4 h-4 shrink-0" />
-        <span>Demo mode — YouTube quota exceeded</span>
+        <span>YouTube API quota reached — quota-free fallback search active</span>
       </div>
       {showOpenButton && onOpenYouTube && (
         <button

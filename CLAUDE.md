@@ -40,7 +40,7 @@ npm run preview
 3. **Media Resolution**: Multi-tier resolution system for finding playback sources:
    - First: Check Supabase database for saved track-to-media mappings (`track-media` edge function)
    - Second: Extract YouTube video IDs from Discogs release `videos` field (quota-free)
-   - Third: `youtube-search` edge function → yt-dlp (primary) → Invidious (fallback) → Official YouTube API (last resort, no quota guard blocking this chain)
+   - Third: `youtube-search` edge function → yt-dlp → YouTube results-page scrape (quota-free, no third-party dependency; expected primary tier in production) → Invidious → Piped → Official YouTube API (strictly last — the only tier that burns quota)
 4. **Playback**: YouTube IFrame Player API (`YouTubePlayer.tsx`, youtube-nocookie iframe) — the only live playback path. The direct-audio extraction edge functions (`yt-dlp-audio`, `invidious-audio`) still exist server-side but have no frontend consumer since the dead desktop player was removed (2026-07-15); rewiring them into `MobilePlayer` is a candidate feature (see memorystate.md Suggestions)
 
 ### Key Architectural Patterns
@@ -60,7 +60,9 @@ npm run preview
 - Manages YouTube player instance via `playerRef`
 - Filters out disliked tracks dynamically
 - `isShuffle` (default: `true`): when OFF, playlist is sorted by artist → album → year → track position (`sortSequential`); when ON, playlist is shuffled
+- The initial playlist is shuffled, so playback starts on a different random track every app load
 - Toggling shuffle OFF restores the sorted sequential order; toggling ON randomizes from the current state
+- Skipping (next/prev/release-jump/select) always autoplays; MobilePlayer enforces it with a ~3s retry loop that survives engine remounts (direct-audio → iframe)
 - Appends new verified tracks (with resolved media) to existing playlist without disrupting playback
 - Uses interval-based time updates for progress tracking
 
@@ -89,7 +91,7 @@ npm run preview
 **Background Verification** (`useBackgroundVerifier`):
 - Automatically resolves media for tracks in background without blocking playback
 - Priority queue: (1) current track, (2) next 3 upcoming tracks, (3) all pending tracks, (4) `non_working` tracks (retry at lower priority so transient failures self-heal)
-- The `isQuotaExceeded` flag is NOT a guard for calling the edge function — it is used only for toast notifications. The `youtube-search` edge function handles quota internally and still runs yt-dlp → Invidious even after YouTube quota is exceeded
+- The `isQuotaExceeded` flag is NOT a guard for calling the edge function — it is used only for the status banner. The `youtube-search` edge function handles quota internally and still runs the quota-free tiers (scrape → Invidious → Piped) even after YouTube API quota is exceeded
 - Exposes `triggerImmediate()` to force an immediate resolution cycle (called after CSV import)
 - Post-processing delay: 500ms (down from 2000ms; slow searches self-throttle via their own timeouts)
 
@@ -163,11 +165,11 @@ Located in `supabase/functions/`:
 - `discogs-auth`: OAuth1 token exchange
 - `discogs-api`: Proxies Discogs API calls (collection, wantlist, release details)
 - `discogs-public`: Fetches release data from Discogs without authentication (used for CSV imports and cover art)
-- `youtube-search`: YouTube search with failsafe chain (yt-dlp → Invidious → YouTube API)
+- `youtube-search`: YouTube search with failsafe chain (yt-dlp → YouTube scrape → Invidious → Piped → YouTube API). yt-dlp is an instant no-op in Supabase's edge runtime (no subprocesses) but kept first for self-hosted deployments; the results-page scrape is the reliable quota-free tier
 - `track-media`: CRUD for saved track-to-media mappings (stores YouTube IDs or Bandcamp embeds per release/track)
 - `invidious-audio`: Extracts direct audio stream URLs from YouTube via Invidious API (quota-free, multiple instance failover)
 - `yt-dlp-audio`: Extracts audio URLs using yt-dlp (primary direct audio method)
-- `track-cache`: CRUD for `discogs_track_cache` table (persists track metadata across sessions). Writes/deletes on username-keyed rows require a valid HMAC session; `csv-*` capability keys pass as-is
+- `track-cache`: CRUD for `discogs_track_cache` table (persists track metadata across sessions). Writes/deletes on username-keyed rows require a valid HMAC session; `csv-*` capability keys pass as-is. `get` pages internally in 1000-row batches with no total cap (PostgREST's 1000-row response cap used to truncate collections >1000 tracks); client upserts are chunked at 500 rows/request
 - `youtube-rescan-weekly`: Weekly link-health rescan — walks `discogs_track_cache`, re-runs the `youtube-search` chain, updates youtube1/youtube2 and flips `working_status`; logs to `rescan_log`. Scheduled via pg_cron `0 4 * * 0` (after daily YouTube quota reset); paced at ~100 rows/min (600ms between calls). Manual trigger: POST `{ "limit": N }`
 - `_shared/session.ts`: Shared session helpers used across functions
 

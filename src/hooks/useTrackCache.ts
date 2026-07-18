@@ -106,13 +106,19 @@ export function useTrackCache() {
       };
     });
 
-    await supabase.functions.invoke('track-cache', {
-      body: {
-        action: 'upsert',
-        items,
-        session: readDiscogsSessionToken(),
-      },
-    });
+    // Chunked so enormous collections don't ship one multi-MB request — the DB
+    // ingests 500 rows at a time, sequentially, with no cap on total size.
+    const CHUNK_SIZE = 500;
+    const session = readDiscogsSessionToken();
+    for (let i = 0; i < items.length; i += CHUNK_SIZE) {
+      await supabase.functions.invoke('track-cache', {
+        body: {
+          action: 'upsert',
+          items: items.slice(i, i + CHUNK_SIZE),
+          session,
+        },
+      });
+    }
   }, []);
 
   const loadTracks = useCallback(async (ownerKey: string, source?: Track['source']): Promise<TrackCacheRow[]> => {

@@ -21,11 +21,14 @@ export function usePlayer(initialTracks?: Track[], dislikedTracks?: Track[]) {
   // Track if we're using demo/mock data
   const [isUsingMockData, setIsUsingMockData] = useState(() => !initialTracks || initialTracks.length === 0);
   
+  // Shuffle is the default listening mode: the initial playlist is shuffled,
+  // so index 0 is a different random track on every app load. Toggling shuffle
+  // OFF restores the sorted sequential order.
   const [playlist, setPlaylist] = useState<Track[]>(() => {
     if (initialTracks && initialTracks.length > 0) {
-      return sortSequential(initialTracks);
+      return shuffleTracks(initialTracks);
     }
-    return sortSequential(mockTracks);
+    return shuffleTracks(mockTracks);
   });
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -36,7 +39,7 @@ export function usePlayer(initialTracks?: Track[], dislikedTracks?: Track[]) {
   const playerRef = useRef<YT.Player | null>(null);
   const intervalRef = useRef<number | null>(null);
 
-  const [isShuffle, setIsShuffle] = useState(false);
+  const [isShuffle, setIsShuffle] = useState(true);
 
   const currentTrack = playlist[currentIndex];
 

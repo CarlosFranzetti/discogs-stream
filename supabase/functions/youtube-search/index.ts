@@ -12,12 +12,21 @@ const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
+// Public instance lists rot fast — dead entries cost a timeout each before the
+// chain moves on, which is how searches ended up falling through to the quota'd
+// official API. Keep these pruned to instances that actually respond.
 const INVIDIOUS_INSTANCES = [
+  'https://inv.nadeko.net',
   'https://yewtu.be',
-  'https://vid.puffyan.us',
-  'https://invidious.kavin.rocks',
-  'https://invidious.snopyta.org',
-  'https://invidious.lunar.icu',
+  'https://invidious.f5.si',
+  'https://invidious.nerdvpn.de',
+  'https://iv.melmac.space',
+];
+
+const PIPED_INSTANCES = [
+  'https://pipedapi.adminforge.de',
+  'https://api.piped.private.coffee',
+  'https://pipedapi.reallyaweso.me',
 ];
 
 interface VideoRow {
@@ -147,6 +156,95 @@ async function searchWithYtDlp(query: string, maxResults: number): Promise<Video
     console.warn('[youtube-search] yt-dlp unavailable:', error);
     return [];
   }
+}
+
+/**
+ * Quota-free, key-free, instance-free fallback: scrape YouTube's own results
+ * page. The page embeds `ytInitialData` JSON whose videoRenderer blocks carry
+ * videoId/title/channel. Survives as long as youtube.com serves search results;
+ * a consent or bot wall simply yields zero matches and the chain moves on.
+ */
+async function searchWithYouTubeScrape(query: string, maxResults: number): Promise<VideoRow[]> {
+  try {
+    const response = await fetch(
+      `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}&hl=en`,
+      {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+          'Accept-Language': 'en-US,en;q=0.9',
+        },
+        signal: AbortSignal.timeout(8000),
+      }
+    );
+    if (!response.ok) return [];
+
+    const html = await response.text();
+    const limit = Math.min(Math.max(maxResults, 1), 10);
+    const videos: VideoRow[] = [];
+    const seen = new Set<string>();
+    const unescapeJson = (s: string) => {
+      try { return JSON.parse(`"${s}"`) as string; } catch { return s; }
+    };
+
+    const blocks = html.split('"videoRenderer":{"videoId":"');
+    for (let i = 1; i < blocks.length && videos.length < limit; i++) {
+      const block = blocks[i];
+      const videoId = block.slice(0, 11);
+      if (!/^[\w-]{11}$/.test(videoId) || seen.has(videoId)) continue;
+      seen.add(videoId);
+      const titleMatch = block.match(/"title":\{"runs":\[\{"text":"((?:[^"\\]|\\.)*)"/);
+      const channelMatch = block.match(/"ownerText":\{"runs":\[\{"text":"((?:[^"\\]|\\.)*)"/);
+      videos.push({
+        videoId,
+        title: titleMatch ? unescapeJson(titleMatch[1]) : '',
+        channelTitle: channelMatch ? unescapeJson(channelMatch[1]) : '',
+        thumbnail: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+      });
+    }
+    return videos;
+  } catch (error) {
+    console.warn('[youtube-search] YouTube scrape failed:', error);
+    return [];
+  }
+}
+
+async function searchWithPiped(query: string, maxResults: number): Promise<VideoRow[]> {
+  const limit = Math.min(Math.max(maxResults, 1), 10);
+
+  for (const instance of PIPED_INSTANCES) {
+    try {
+      const response = await fetch(
+        `${instance}/search?q=${encodeURIComponent(query)}&filter=videos`,
+        {
+          headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+          signal: AbortSignal.timeout(5000),
+        }
+      );
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+      const data = await response.json() as { items?: Array<{ url?: string; title?: string; uploaderName?: string }> };
+      const videos = (data?.items || [])
+        .map((item) => {
+          const idMatch = String(item?.url || '').match(/[?&]v=([\w-]{11})/);
+          if (!idMatch) return null;
+          return {
+            videoId: idMatch[1],
+            title: item.title || '',
+            channelTitle: item.uploaderName || '',
+            thumbnail: `https://i.ytimg.com/vi/${idMatch[1]}/hqdefault.jpg`,
+          } as VideoRow;
+        })
+        .filter(Boolean)
+        .slice(0, limit) as VideoRow[];
+
+      if (videos.length > 0) return videos;
+    } catch (error) {
+      console.warn(`[youtube-search] Piped ${instance} failed:`, error);
+      continue;
+    }
+  }
+
+  return [];
 }
 
 async function searchWithInvidious(query: string, maxResults: number): Promise<VideoRow[]> {
@@ -328,24 +426,45 @@ serve(async (req) => {
 
     let videos: VideoRow[] = [];
     let nextPageToken: string | null = null;
-    let source: 'yt-dlp' | 'invidious' | 'youtube-api' = 'yt-dlp';
+    let source: 'yt-dlp' | 'scrape' | 'invidious' | 'piped' | 'youtube-api' = 'yt-dlp';
 
-    // 2) Primary: yt-dlp search — try each query variant until results found.
+    // 2) yt-dlp — instant no-op in Supabase's edge runtime (no subprocesses),
+    // but kept first so self-hosted deployments get the best extractor.
     for (const q of queryVariants) {
       videos = await searchWithYtDlp(q, limit);
       if (videos.length > 0) break;
     }
 
-    // 3) Fallback: Invidious search — try each query variant.
+    // 3) YouTube results-page scrape — the quota workaround that doesn't depend
+    // on third-party instances. This is the tier expected to serve most traffic.
+    if (videos.length === 0) {
+      source = 'scrape';
+      for (const q of queryVariants) {
+        videos = await searchWithYouTubeScrape(q, limit);
+        if (videos.length > 0) break;
+      }
+    }
+
+    // 4) Invidious instances — first two variants only; each dead instance
+    // costs a timeout, so don't multiply that by every variant.
     if (videos.length === 0) {
       source = 'invidious';
-      for (const q of queryVariants) {
+      for (const q of queryVariants.slice(0, 2)) {
         videos = await searchWithInvidious(q, limit);
         if (videos.length > 0) break;
       }
     }
 
-    // 4) Last resort: Official API — try primary query then clean variant.
+    // 5) Piped instances — same quota-free deal, different network.
+    if (videos.length === 0) {
+      source = 'piped';
+      for (const q of queryVariants.slice(0, 2)) {
+        videos = await searchWithPiped(q, limit);
+        if (videos.length > 0) break;
+      }
+    }
+
+    // 6) Official API — strictly last: the only tier that burns quota.
     if (videos.length === 0) {
       source = 'youtube-api';
       for (const q of queryVariants.slice(0, 2)) {
@@ -364,7 +483,7 @@ serve(async (req) => {
       }
     }
 
-    // 5) Score and rank results by relevance to artist + title.
+    // 7) Score and rank results by relevance to artist + title.
     if (videos.length > 1 && artist && title) {
       videos = videos
         .map(v => ({ ...v, _score: scoreResult(v.title || '', v.channelTitle || '', String(artist), String(title)) }))
@@ -372,7 +491,7 @@ serve(async (req) => {
         .map(({ _score: _s, ...v }) => v as VideoRow);
     }
 
-    // 6) Keep prior ID as secondary fallback candidate when refreshing.
+    // 8) Keep prior ID as secondary fallback candidate when refreshing.
     if (existingVideoId && !videos.some((v) => v.videoId === existingVideoId)) {
       videos = [
         ...videos,
