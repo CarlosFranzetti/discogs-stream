@@ -17,6 +17,20 @@ export default defineConfig(() => ({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  ...(!isExtension ? {
+    build: {
+      rollupOptions: {
+        output: {
+          // Split stable vendor code from app code so app-only changes don't
+          // re-download React/Supabase, and the initial parse cost drops.
+          manualChunks: {
+            'react-vendor': ['react', 'react-dom', 'react-router-dom'],
+            'supabase': ['@supabase/supabase-js'],
+          },
+        },
+      },
+    },
+  } : {}),
   ...(isExtension ? {
     base: './',
     build: {

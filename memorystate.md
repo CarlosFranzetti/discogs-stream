@@ -88,6 +88,14 @@
 
 ## Log
 
+### 2026-07-17 — PASS 2 complete: blocker fixed, shipped, code-split. Cycle closed.
+- **Error-checker (dedicated Sonnet) verdict on the feature batch**: 1 BLOCKER + 1 MEDIUM, everything else explicitly clean (probe races, engine exclusivity, whitelist bypasses, CI lockfile sync all verified).
+- **BLOCKER fixed**: original probe design mounted NEITHER engine while probing → up to 5s of silence on every track change. New design: iframe plays immediately, direct engine takes over at the elapsed position (`initialSeek` applied on `loadedmetadata`). **MEDIUM fixed**: mid-track direct-stream failure now resumes the iframe at the elapsed position (`iframeResumeAtRef` + seek in onReady) instead of restarting at 0:00.
+- **Shipped** `4eed9e2` (the full feature batch) → master auto-deployed to production (READY, verified via API) + `development` branch pushed for the preview environment.
+- **Pass-2 optimization (D1)**: route-level lazy loading (Auth/Library/NotFound) + manualChunks (react-vendor 160 kB, supabase 170 kB) — main chunk **712 kB → 312 kB** (gzip ~209 → ~100 kB), 500 kB warning gone, vendor chunks now cache across deploys. Extension build untouched and green.
+- Production build boots (vite preview 200, title renders). All checks green: typecheck 0, tests 9/9, lint 0 errors, both builds.
+- **Loop status**: docs → baseline → cleanup → review → security → features → review → fix → ship → optimize → ship. Next cycle candidates: B2 crate filters, B3 cue preview, C1 state bridge, remaining Phase C/D/E roadmap items. Open user actions: rotate Discogs consumer secret; rebuild the Chrome extension locally (`npm run build:extension` + reload) to pick up the panel fixes.
+
 ### 2026-07-17 — Parallel agents landed; B1 wired; SECRET LEAK caught & fixed in prod
 - **Opus agent #1 (extension)**: all 6 review findings fixed — CompactPlayer volume/mute now drives the YT player; single `usePitch` lifted into PanelApp (new `PitchControl` type) passed to CompactPlayer + NowPlayingView; auto-load effect re-runs when tracks arrive (with once-per-release guard); `.catch` on every dbSet/dbDelete in crates/playlists/carts; no-empty lint error fixed; auto-skip uses `skipNextRef`. typecheck/lint/test/build/build:extension all green.
 - **Opus agent #2 (marketplace/CI)**: `discogs-public` now handles `{path}` with a strict whitelist (`/marketplace/stats/\d+`, `/database/search?` with param whitelist q/type/genre/style/year/format/per_page), 24h cache under `discogs-public:path:*` keys; new `useWantlistPrices` hook (1 req/s queue, dedupe, Map+version); `.github/workflows/ci.yml` (npm ci → test → lint → typecheck → build).
