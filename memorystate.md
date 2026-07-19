@@ -3,14 +3,15 @@
 > Living memory log. Updated after every engineering pass (docs → cleanup → review → security → suggestions).
 > Newest entries at the top of the Log. Do not delete old entries; they are the history.
 
-## Current State (last updated: 2026-07-15, Pass 1 COMPLETE — all phases done)
+## Current State (last updated: 2026-07-18, quota-failsafe rebuild + big-collection fixes + B2 shipped)
 
-- **Branch**: `master`, all changes LOCAL and UNCOMMITTED (user hold: no GitHub push, no Vercel deploy — test first)
-- **Tests**: 9/9 passing · **tsc**: clean · **Lint**: 0 errors / 12 warnings (shadcn boilerplate + 1 intentional deps-array) · **Build**: OK (696 kB bundle, code-splitting is top optimization candidate)
-- **Removed this pass**: 13 dead src files (legacy desktop player tree + orphans), `LEGACY/` (13 files), `run-migration` edge fn — ~27 files total, verified green after each batch
-- **Fixed this pass**: background-verifier timer leak (HIGH), workingStatus cache-reversion (MED), npm lockfile drift (MED), 4 security issues (see Phase 5 log)
-- **Docs**: CLAUDE.md, README.md, PRD.md, TDD.md, docs/CODEBASE-FUNCTIONS.md all synced; memorystate.md (this file) + LOOPY.md created
-- **Live app shape**: single `MobilePlayer` at `/` (YouTube IFrame playback only), `/library` standalone page, `/auth` Discogs OAuth. Direct-audio + Bandcamp exist only as server-side edge fns with no UI consumer.
+- **Branch**: everything COMMITTED and PUSHED — `origin/master` at `4eed9e2` ("Direct-audio engine, Media Session, pitch fader, wantlist prices, extension fixes"); work continues on `claude/check-out-jkrunj` (started from that commit)
+- **Tests**: 9/9 passing · **typecheck** (`tsc -p tsconfig.app.json`): 0 errors · **Lint**: 0 errors / 15 warnings (shadcn boilerplate + 1 intentional deps-array) · **Build**: OK (code-splitting still the top optimization candidate)
+- **Shipped 2026-07-17** (`4eed9e2`, auto-deployed to prod via Vercel Git integration): Phase A complete (A1 direct audio, A2 Media Session, A3 candidate-failover, A4 set-length totals, A5 pitch fader) + B1 wantlist price badges + extension review fixes + `discogs-public` path proxy + CI workflow
+- **Supabase side**: hardening deployed + live-verified 2026-07-17 (RLS migration synced; `track-cache` v7 / `track-media` v6 / `youtube-rescan-weekly` v7; 401 guards verified against prod)
+- **Live app shape**: single `MobilePlayer` at `/` — direct-audio `<audio>` engine (yt-dlp/Invidious probe) with YouTube IFrame fallback; `/library` standalone page, `/auth` Discogs OAuth; Chrome extension side panel shares hooks
+- **2026-07-18 on `claude/check-out-jkrunj`**: B2 crate-digging filters; youtube-search chain rebuilt (yt-dlp → **YouTube scrape** [new, quota-free primary] → Invidious [refreshed list] → **Piped** [new] → API last); track-cache `get` pages internally (1000/batch, **no cap** — was silently truncating >1000-track collections); client upserts chunked 500/req; cover-art `.in()` chunked 200/req; shuffle default ON + shuffled initial playlist (random start every load); autoplay-on-skip retry loop
+- **Open items**: rotate Discogs consumer secret (brief `pagination.urls` exposure 2026-07-17, leak itself fixed); dedicated `SESSION_SECRET` env (E3); next up B3 cue preview / B4 similar-source wiring / C-phase structure work
 
 ### ✅ Deploy-time checklist — COMPLETED 2026-07-17
 1. ✅ RLS migration `20260715000000_lock_down_youtube_videos.sql` applied remotely (found already synced on 2026-07-17)
@@ -21,16 +22,16 @@
 
 ## Phased Roadmap (2026-07-17 — ALL feature ideas are committed for eventual implementation, per Carlos)
 
-**Phase A — Audio engine (IN PROGRESS 2026-07-17)**
+**Phase A — Audio engine (DONE 2026-07-17, shipped in `4eed9e2`)**
 - A1. Direct audio (yt-dlp/Invidious → HTML5 `<audio>`) into MobilePlayer, iframe fallback kept
 - A2. Media Session API (lock-screen artwork + transport)
 - A3. Quick win: candidate-failover (try cached `youtube2` before re-searching on error 150/101)
 - A4. Quick win: set-length totals (total runtime wherever track counts show)
 - A5. ±8% pitch fader with slider in the PWA (usePitch + audio playbackRate, preservesPitch=false for true vinyl behavior) — AFTER A1
 
-**Phase B — Collector surfaces (B1 IN PROGRESS 2026-07-17)**
-- B1. Wantlist price awareness in PWA (port extension `useMarketplace.getBulkStats` + price badges)
-- B2. Crate-digging filters (genre/style/label/year/country chips in playlist sheet)
+**Phase B — Collector surfaces (B1 DONE `4eed9e2`; B2 DONE 2026-07-17 on `claude/check-out-jkrunj`)**
+- B1. ✅ Wantlist price awareness in PWA (port extension `useMarketplace.getBulkStats` + price badges)
+- B2. ✅ Crate-digging filters (genre/label/decade/country chips in playlist sheet — no separate style field on Track; styles fold into `genre` at ingest)
 - B3. Cue preview mode (long-press row → low-volume preview stream; needs A1)
 - B4. Wire `'similar'` source end-to-end (extension similar-releases → playable tracks)
 
@@ -61,6 +62,13 @@
 4. **Free candidate-failover** (S, NEW) — on YouTube error 150/101, `handlePlayerError` re-searches the network but never tries the already-cached `track.youtubeCandidates[1]` (youtube2 column). Zero-cost, zero-quota retry sitting unused.
 5. **Set-length totals** (S, NEW) — durations are tracked and even corrected from real YT playback, but no surface shows total runtime of a crate/playlist/filtered list. DJs think in minutes, not track counts.
 
+### Enormous collections/wantlists (2026-07-18 look-in; caps removed, these are the next bottlenecks)
+- **localStorage is the next hard ceiling** (~5MB): a 10k-track collection's JSON blows it and writes start throwing silently. Move the offline cache to IndexedDB (the extension's `src/lib/db.ts` is a ready pattern) with localStorage fallback for small sets.
+- **Progressive hydration**: track-cache `get` now returns everything, but the client waits for the full payload before first render. Stream page-by-page into state (first 1000 → instant player, rest in background).
+- **Virtualize the playlist sheet** (roadmap D2): 10k unvirtualized rows will jank the sheet open/scroll. `@tanstack/react-virtual`.
+- **Server-side pre-resolution**: for huge sets, the client verifier (1 track/~1s) takes hours. Raise the weekly rescan's per-pass row budget or add an on-demand "resolve my pending tracks" server pass so links are ready before the user ever opens the app.
+- **Dirty-row upserts**: the 500ms-debounced upsert still rewrites ALL rows each burst; for 10k tracks that's 20 chunked requests per save. Track dirty ids and upsert only changed rows.
+
 ### Structural (both surfaces)
 6. **Unify extension ↔ PWA state** (L; S if scoped to JSON export/import) — extension crates/playlists/carts live in a private IndexedDB (`src/lib/db.ts`), invisible to the Supabase-backed PWA. Crate-dig on discogs.com, can't play it on the phone.
 7. **One virtualized playlist component** (S/M) — the unvirtualized `.map` list now exists TWICE (`MobilePlaylistSheet`, extension `NowPlayingView`).
@@ -88,6 +96,10 @@
 
 ## Log
 
+### 2026-07-19 — MERGED PR #20 (parallel cloud session) into master
+- Reconciled the parallel session's branch `claude/check-out-jkrunj` (3 commits: quota-chain rebuild, 1000-row cap removal, B2 facets) with local pass-2 work. Only memorystate.md conflicted (log union below); code auto-merged.
+- ⚠️ Their session could NOT deploy `youtube-search` + `track-cache` (no token in remote sandbox) — deploying + live-verifying now from this session.
+
 ### 2026-07-17 — PASS 2 complete: blocker fixed, shipped, code-split. Cycle closed.
 - **Error-checker (dedicated Sonnet) verdict on the feature batch**: 1 BLOCKER + 1 MEDIUM, everything else explicitly clean (probe races, engine exclusivity, whitelist bypasses, CI lockfile sync all verified).
 - **BLOCKER fixed**: original probe design mounted NEITHER engine while probing → up to 5s of silence on every track change. New design: iframe plays immediately, direct engine takes over at the elapsed position (`initialSeek` applied on `loadedmetadata`). **MEDIUM fixed**: mid-track direct-stream failure now resumes the iframe at the elapsed position (`iframeResumeAtRef` + seek in onReady) instead of restarting at 0:00.
@@ -95,6 +107,24 @@
 - **Pass-2 optimization (D1)**: route-level lazy loading (Auth/Library/NotFound) + manualChunks (react-vendor 160 kB, supabase 170 kB) — main chunk **712 kB → 312 kB** (gzip ~209 → ~100 kB), 500 kB warning gone, vendor chunks now cache across deploys. Extension build untouched and green.
 - Production build boots (vite preview 200, title renders). All checks green: typecheck 0, tests 9/9, lint 0 errors, both builds.
 - **Loop status**: docs → baseline → cleanup → review → security → features → review → fix → ship → optimize → ship. Next cycle candidates: B2 crate filters, B3 cue preview, C1 state bridge, remaining Phase C/D/E roadmap items. Open user actions: rotate Discogs consumer secret; rebuild the Chrome extension locally (`npm run build:extension` + reload) to pick up the panel fixes.
+
+### 2026-07-18 — Quota failsafes rebuilt; 1000-row cap removed; random start + skip autoplay (per Carlos)
+- **Root cause of the quota message**: the chain's quota-free tiers were both dead in production — yt-dlp can't spawn subprocesses in Supabase's edge runtime (instant fail), and the 2024-era Invidious list (puffyan/kavin/snopyta/lunar — all shut down) cost timeouts then failed. Nearly every search fell through to the official API and burned quota.
+- **Chain rebuilt** (`youtube-search` edge fn): yt-dlp (kept first — works if ever self-hosted) → **YouTube results-page scrape** (NEW: parses videoRenderer blocks from ytInitialData; quota-free, key-free, no third-party instance to rot; parser unit-verified incl. escaped quotes + dedupe) → Invidious (refreshed 2026 list: inv.nadeko.net, yewtu.be, f5.si, nerdvpn.de, melmac.space; capped to 2 query variants) → **Piped** (NEW: adminforge.de, private.coffee, reallyaweso.me) → official API strictly last. Weekly rescan inherits the new chain automatically (it invokes youtube-search).
+- **NOTE — could not live-verify instance liveness or the scrape from the dev sandbox (egress blocked, 000s); needs a prod invoke test after deploy.**
+- **Deploy status**: Vercel preview auto-deployed off the branch push — `dpl_2L6UyCZ8QvzKaMWP2gPoQ6yJDQYT` READY at https://discogs-stream-git-claude-chec-aad011-carlosfranzettis-projects.vercel.app (commit `8205be9`). ⚠️ Supabase edge fns `youtube-search` + `track-cache` NOT yet deployed — MCP deploy required interactive approval unavailable in the remote session, and no `SUPABASE_ACCESS_TOKEN` for CLI. Until they're deployed, prod still runs the old chain/cap: deploy via `npx supabase functions deploy youtube-search track-cache` (or approve the MCP deploy), preserving remote verify_jwt (youtube-search=true, track-cache=false — config.toml says false for both; CLI deploy would flip youtube-search, which still works since clients send the anon JWT).
+- **1000-track cap removed**: `track-cache` `get` was one select → PostgREST silently caps at 1000 rows, truncating bigger collections on return visits. Now pages internally 1000/batch until exhausted, ordered by track_id (stable key), no total cap. Client `upsertTracks` chunked 500/req (was POSTing the whole collection in one body, debounced). Cover-art batch `.in()` chunked 200 ids/req (URL overflow + same 1000-row cap).
+- **Random start**: `usePlayer` isShuffle now defaults TRUE (code had drifted from CLAUDE.md) and the initial playlist state is shuffled — index 0 is a different random track every load.
+- **Skip autoplay**: replaced the one-shot 200ms enforce-autoplay check with a ~3s retry loop (300ms × 10) — the old check gave up if the iframe was still remounting after the direct-audio engine unmounted on skip, leaving the next track silent.
+- **Copy fixes**: QuotaBanner "Demo mode — YouTube quota exceeded" → "YouTube API quota reached — quota-free fallback search active"; player status row "Streaming via Invidious" → "API quota reached — using fallback search".
+- DB persistence + weekly rescan verified untouched: client still upserts youtube1/youtube2 + working_status per track; `youtube_videos`/`search_cache` writes in the edge fn unchanged; pg_cron rescan `0 4 * * 0` intact.
+- Verified: tests 9/9, typecheck 0 errors, lint 0 errors, build OK.
+
+### 2026-07-17 — Memorystate synced to post-ship reality; B2 crate-digging filters implemented
+- Current State header rewritten: Pass 1 + Phase A + B1 are committed/pushed/deployed (`4eed9e2` on master), not "local and uncommitted" as the stale header claimed; Phase A marked DONE, B1 checked off
+- **B2 implemented** (`MobilePlaylistSheet`, display-only like search so playlist indices stay correct): funnel chip toggles facet rows — genre / label / decade / country — built from the loaded playlist (top 12 per facet by frequency, counts shown). OR within a facet, AND across facets; active-filter count on the funnel chip; Clear-filters action; header flips to "X of Y tracks" and the A4 runtime total tracks the filtered view. No style facet: Discogs styles fold into `genre` at ingest (`genres[0] || styles[0]`), noted in roadmap
+- Facets with <2 distinct values self-hide (nothing to dig through); 'Unknown' genre/label and year 0 excluded from chips
+- Verified: tests 9/9, typecheck 0 errors, lint 0 errors/15 warnings, build OK. CLAUDE.md filter section updated
 
 ### 2026-07-17 — Parallel agents landed; B1 wired; SECRET LEAK caught & fixed in prod
 - **Opus agent #1 (extension)**: all 6 review findings fixed — CompactPlayer volume/mute now drives the YT player; single `usePitch` lifted into PanelApp (new `PitchControl` type) passed to CompactPlayer + NowPlayingView; auto-load effect re-runs when tracks arrive (with once-per-release guard); `.catch` on every dbSet/dbDelete in crates/playlists/carts; no-empty lint error fixed; auto-skip uses `skipNextRef`. typecheck/lint/test/build/build:extension all green.

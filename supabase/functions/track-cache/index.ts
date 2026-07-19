@@ -65,25 +65,37 @@ serve(async (req) => {
         });
       }
 
-      let query = supabase
-        .from('discogs_track_cache')
-        .select('owner_key,source,track_id,release_id,track_position,artist,title,album,genre,label,year,country,cover1,cover2,cover3,cover4,youtube1,youtube2,working_status,duration,updated_at')
-        .eq('owner_key', ownerKey)
-        .order('updated_at', { ascending: false });
+      // PostgREST caps a single select at 1000 rows, which silently truncated
+      // collections beyond 1000 tracks. Page in 1000-row batches with no cap —
+      // ordered by track_id (stable key) so concurrent updates can't shift rows
+      // between pages mid-pagination.
+      const PAGE_SIZE = 1000;
+      const rows: unknown[] = [];
+      for (let offset = 0; ; offset += PAGE_SIZE) {
+        let query = supabase
+          .from('discogs_track_cache')
+          .select('owner_key,source,track_id,release_id,track_position,artist,title,album,genre,label,year,country,cover1,cover2,cover3,cover4,youtube1,youtube2,working_status,duration,updated_at')
+          .eq('owner_key', ownerKey)
+          .order('track_id', { ascending: true })
+          .range(offset, offset + PAGE_SIZE - 1);
 
-      if (source) {
-        query = query.eq('source', source);
+        if (source) {
+          query = query.eq('source', source);
+        }
+
+        const { data, error } = await query;
+        if (error) {
+          return new Response(JSON.stringify({ error: 'db_error' }), {
+            status: 500,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+
+        rows.push(...(data || []));
+        if (!data || data.length < PAGE_SIZE) break;
       }
 
-      const { data, error } = await query;
-      if (error) {
-        return new Response(JSON.stringify({ error: 'db_error' }), {
-          status: 500,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
-      }
-
-      return new Response(JSON.stringify({ rows: data || [] }), {
+      return new Response(JSON.stringify({ rows }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }

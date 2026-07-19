@@ -510,20 +510,29 @@ export function MobilePlayer() {
     audioController.setVolume(value[0]);
   }, [audioController]);
 
-  // Enforce autoplay when skipping tracks
+  // Enforce autoplay when skipping tracks. Retries for ~3s because the iframe
+  // may still be remounting when the video changes (e.g. right after the
+  // direct-audio engine unmounts on skip) — a single early check would give up
+  // before playerRef exists and leave the new track silent.
   useEffect(() => {
-    if (isPlaying && currentVideoId && playerRef.current) {
-      const timeoutId = setTimeout(() => {
-        if (playerRef.current && typeof playerRef.current.getPlayerState === 'function') {
-           const state = playerRef.current.getPlayerState();
-           // If not playing (1) and not buffering (3)
-           if (state !== 1 && state !== 3) {
-             playerRef.current.playVideo();
-           }
+    if (!isPlaying || !currentVideoId) return;
+    let attempts = 0;
+    const intervalId = window.setInterval(() => {
+      attempts += 1;
+      const yt = playerRef.current;
+      if (yt && typeof yt.getPlayerState === 'function') {
+        const state = yt.getPlayerState();
+        // Already playing (1) or buffering (3) — done.
+        if (state === 1 || state === 3) {
+          window.clearInterval(intervalId);
+          return;
         }
-      }, 200);
-      return () => clearTimeout(timeoutId);
-    }
+        if (typeof yt.playVideo === 'function') yt.playVideo();
+      }
+      if (attempts >= 10) window.clearInterval(intervalId);
+    }, 300);
+    return () => window.clearInterval(intervalId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentVideoId, isPlaying]);
 
   // Persist real duration from YouTube player back to track metadata
@@ -1220,7 +1229,7 @@ export function MobilePlayer() {
           <div className="px-1 pt-1.5 pb-1">
             {/* Quota row — positive fallback indicator */}
             <div className={`flex items-center gap-2 justify-center transition-opacity duration-200 ${isQuotaExceeded ? 'opacity-100' : 'opacity-0 pointer-events-none select-none'}`}>
-              <span className="text-[11px] text-muted-foreground/60">Streaming via Invidious</span>
+              <span className="text-[11px] text-muted-foreground/60">API quota reached — using fallback search</span>
               <button
                 onClick={handleOpenInYouTube}
                 className="text-[11px] text-muted-foreground/50 hover:text-muted-foreground hover:underline shrink-0"

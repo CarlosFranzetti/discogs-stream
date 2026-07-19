@@ -50,22 +50,25 @@ export function useCoverArtScraper() {
     if (releaseIds.length === 0) return 0;
 
     try {
-      const { data, error } = await supabase
-        .from('release_cover_art')
-        .select('release_id, cover_url, thumb_url')
-        .in('release_id', releaseIds);
+      // Chunked: thousands of ids in one .in() overflows the request URL and
+      // the response would hit PostgREST's 1000-row cap anyway.
+      const CHUNK_SIZE = 200;
+      const uniqueIds = [...new Set(releaseIds)];
+      const coverMap = new Map<number, string>();
+      for (let i = 0; i < uniqueIds.length; i += CHUNK_SIZE) {
+        const { data, error } = await supabase
+          .from('release_cover_art')
+          .select('release_id, cover_url, thumb_url')
+          .in('release_id', uniqueIds.slice(i, i + CHUNK_SIZE));
 
-      if (error) {
-        return 0;
+        if (error) continue;
+        (data || []).forEach(row => {
+          const url = row.cover_url || row.thumb_url;
+          if (url) coverMap.set(row.release_id, url);
+        });
       }
 
-      if (!data || data.length === 0) return 0;
-
-      const coverMap = new Map<number, string>();
-      data.forEach(row => {
-        const url = row.cover_url || row.thumb_url;
-        if (url) coverMap.set(row.release_id, url);
-      });
+      if (coverMap.size === 0) return 0;
 
       let updateCount = 0;
       tracks.forEach(track => {
