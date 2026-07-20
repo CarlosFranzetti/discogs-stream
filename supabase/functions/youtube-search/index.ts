@@ -211,8 +211,9 @@ async function searchWithYouTubeScrape(query: string, maxResults: number): Promi
 async function searchWithPiped(query: string, maxResults: number): Promise<VideoRow[]> {
   const limit = Math.min(Math.max(maxResults, 1), 10);
 
-  for (const instance of PIPED_INSTANCES) {
-    try {
+  // Raced like Invidious — first instance with matches wins, empty = failure.
+  try {
+    return await Promise.any(PIPED_INSTANCES.map(async (instance) => {
       const response = await fetch(
         `${instance}/search?q=${encodeURIComponent(query)}&filter=videos`,
         {
@@ -237,21 +238,23 @@ async function searchWithPiped(query: string, maxResults: number): Promise<Video
         .filter(Boolean)
         .slice(0, limit) as VideoRow[];
 
-      if (videos.length > 0) return videos;
-    } catch (error) {
-      console.warn(`[youtube-search] Piped ${instance} failed:`, error);
-      continue;
-    }
+      if (videos.length === 0) throw new Error('no matches');
+      return videos;
+    }));
+  } catch {
+    return [];
   }
-
-  return [];
 }
 
 async function searchWithInvidious(query: string, maxResults: number): Promise<VideoRow[]> {
   const limit = Math.min(Math.max(maxResults, 1), 10);
 
-  for (const instance of INVIDIOUS_INSTANCES) {
-    try {
+  // Race all instances — first one to return matches wins. The old sequential
+  // loop cost 5s per dead instance (up to 25s) before reaching a live one.
+  // An instance that answers with zero matches counts as a failure so a
+  // healthy-but-empty mirror doesn't mask a live one with results.
+  try {
+    return await Promise.any(INVIDIOUS_INSTANCES.map(async (instance) => {
       const response = await fetch(
         `${instance}/api/v1/search?q=${encodeURIComponent(query)}&type=video`,
         {
@@ -277,14 +280,12 @@ async function searchWithInvidious(query: string, maxResults: number): Promise<V
           thumbnail: `https://i.ytimg.com/vi/${row.videoId}/hqdefault.jpg`,
         }));
 
+      if (videos.length === 0) throw new Error('no matches');
       return videos;
-    } catch (error) {
-      console.warn(`[youtube-search] Invidious ${instance} failed:`, error);
-      continue;
-    }
+    }));
+  } catch {
+    return [];
   }
-
-  return [];
 }
 
 async function searchWithOfficialApi(query: string, maxResults: number, pageToken?: string): Promise<{ videos: VideoRow[]; nextPageToken: string | null; error?: string }> {
@@ -428,6 +429,13 @@ serve(async (req) => {
     let nextPageToken: string | null = null;
     let source: 'yt-dlp' | 'scrape' | 'invidious' | 'piped' | 'youtube-api' = 'yt-dlp';
 
+    // Shared wall-clock budget across the quota-free tiers. Without it, a
+    // blocked scrape (8s × N variants) + slow mirrors could stack 40s+ before
+    // reaching the official API — stalling the background verifier and
+    // risking the edge-function time limit.
+    const chainStart = Date.now();
+    const quotaFreeBudgetLeft = () => Date.now() - chainStart < 20_000;
+
     // 2) yt-dlp — instant no-op in Supabase's edge runtime (no subprocesses),
     // but kept first so self-hosted deployments get the best extractor.
     for (const q of queryVariants) {
@@ -440,6 +448,7 @@ serve(async (req) => {
     if (videos.length === 0) {
       source = 'scrape';
       for (const q of queryVariants) {
+        if (!quotaFreeBudgetLeft()) break;
         videos = await searchWithYouTubeScrape(q, limit);
         if (videos.length > 0) break;
       }
@@ -447,18 +456,20 @@ serve(async (req) => {
 
     // 4) Invidious instances — first two variants only; each dead instance
     // costs a timeout, so don't multiply that by every variant.
-    if (videos.length === 0) {
+    if (videos.length === 0 && quotaFreeBudgetLeft()) {
       source = 'invidious';
       for (const q of queryVariants.slice(0, 2)) {
+        if (!quotaFreeBudgetLeft()) break;
         videos = await searchWithInvidious(q, limit);
         if (videos.length > 0) break;
       }
     }
 
     // 5) Piped instances — same quota-free deal, different network.
-    if (videos.length === 0) {
+    if (videos.length === 0 && quotaFreeBudgetLeft()) {
       source = 'piped';
       for (const q of queryVariants.slice(0, 2)) {
+        if (!quotaFreeBudgetLeft()) break;
         videos = await searchWithPiped(q, limit);
         if (videos.length > 0) break;
       }
@@ -489,6 +500,31 @@ serve(async (req) => {
         .map(v => ({ ...v, _score: scoreResult(v.title || '', v.channelTitle || '', String(artist), String(title)) }))
         .sort((a, b) => (b as VideoRow & { _score: number })._score - (a as VideoRow & { _score: number })._score)
         .map(({ _score: _s, ...v }) => v as VideoRow);
+    }
+
+    // 7b) Embeddability probe for quota-free results. The scrape/Invidious/
+    // Piped tiers can return non-embeddable or region-locked videos; one
+    // videos.list call (1 quota unit vs 100 for a search) filters those before
+    // a bad ID is persisted as the canonical mapping. Best-effort: on probe
+    // failure (including quota exhaustion) keep the originals — the client's
+    // candidate-failover recovers from a bad ID at playback time.
+    if (videos.length > 0 && source !== 'youtube-api' && YOUTUBE_API_KEY) {
+      try {
+        const probed = videos.slice(0, 5);
+        const statusRes = await fetch(
+          `https://www.googleapis.com/youtube/v3/videos?part=status&id=${probed.map((v) => v.videoId).join(',')}&key=${YOUTUBE_API_KEY}`,
+          { signal: AbortSignal.timeout(4000) }
+        );
+        if (statusRes.ok) {
+          const statusData = await statusRes.json() as { items?: Array<{ id: string; status?: { embeddable?: boolean } }> };
+          const returned = statusData.items || [];
+          const okIds = new Set(returned.filter((i) => i.status?.embeddable !== false).map((i) => i.id));
+          // Videos absent from the response are deleted/private — drop them too.
+          const head = probed.filter((v) => okIds.has(v.videoId));
+          const merged = [...head, ...videos.slice(5)];
+          if (merged.length > 0) videos = merged;
+        }
+      } catch { /* best-effort — never let the probe break the chain */ }
     }
 
     // 8) Keep prior ID as secondary fallback candidate when refreshing.

@@ -3,9 +3,10 @@
 > Living memory log. Updated after every engineering pass (docs → cleanup → review → security → suggestions).
 > Newest entries at the top of the Log. Do not delete old entries; they are the history.
 
-## Current State (last updated: 2026-07-18, quota-failsafe rebuild + big-collection fixes + B2 shipped)
+## Current State (last updated: 2026-07-20, PR #20 merged + deployed; repo↔prod drift on youtube-search synced back)
 
-- **Branch**: everything COMMITTED and PUSHED — `origin/master` at `4eed9e2` ("Direct-audio engine, Media Session, pitch fader, wantlist prices, extension fixes"); work continues on `claude/check-out-jkrunj` (started from that commit)
+- **Branch**: `origin/master` at `71463b9` ("Merge PR #20: quota-chain rebuild, 1000-row cap removal, B2 crate filters") — includes Pass 2 (`279af58`: silent-gap engine-handoff fix + code-splitting). `claude/check-out-jkrunj` restarted from that merge (its pre-merge history is fully contained in master).
+- **Prod edge fns (verified live 2026-07-20)**: `youtube-search` v10 (new chain + raced instances + 20s quota-free budget + embeddability probe; verify_jwt now false via config.toml — clients send anon JWT, works), `track-cache` v12 (paged get, byte-identical to repo). Deployed via CLI by the local session that merged PR #20.
 - **Tests**: 9/9 passing · **typecheck** (`tsc -p tsconfig.app.json`): 0 errors · **Lint**: 0 errors / 15 warnings (shadcn boilerplate + 1 intentional deps-array) · **Build**: OK (code-splitting still the top optimization candidate)
 - **Shipped 2026-07-17** (`4eed9e2`, auto-deployed to prod via Vercel Git integration): Phase A complete (A1 direct audio, A2 Media Session, A3 candidate-failover, A4 set-length totals, A5 pitch fader) + B1 wantlist price badges + extension review fixes + `discogs-public` path proxy + CI workflow
 - **Supabase side**: hardening deployed + live-verified 2026-07-17 (RLS migration synced; `track-cache` v7 / `track-media` v6 / `youtube-rescan-weekly` v7; 401 guards verified against prod)
@@ -95,6 +96,12 @@
 10. **Cover-art write path** — move `release_cover_art` writes behind `discogs-public`, then service-role-lock its RLS (closes the last world-writable table).
 
 ## Log
+
+### 2026-07-20 — Repo↔prod drift on youtube-search synced back into git
+- Status check found deployed `youtube-search` v10 AHEAD of the repo: the deploy-and-verify session had refined the chain during live verification — Invidious + Piped instances now raced via `Promise.any` (old sequential loop cost 5s per dead instance, up to 25s), a shared 20s wall-clock budget across the quota-free tiers, and a "7b" embeddability probe (1-unit `videos.list` check filters non-embeddable/deleted IDs from quota-free results before they're persisted; best-effort, keeps originals on probe failure). None of that was committed — a future repo deploy would have silently reverted it.
+- Deployed v10 source pulled via management API and committed verbatim to `supabase/functions/youtube-search/index.ts`. `track-cache` v12 checked too: byte-identical to repo, no drift.
+- Also noted from prod logs: `yt-dlp-audio` 500s instantly and `invidious-audio` 500s after ~7s on every direct-audio probe (its own instance list is as rotten as youtube-search's was). Client handles it (3-fail session-off → iframe), but refreshing/racing `invidious-audio`'s instances is the obvious next fix if direct audio should actually engage.
+- `claude/check-out-jkrunj` restarted from master (`71463b9`) per merged-PR protocol; sync committed there.
 
 ### 2026-07-19 — MERGED PR #20 (parallel cloud session) into master
 - Reconciled the parallel session's branch `claude/check-out-jkrunj` (3 commits: quota-chain rebuild, 1000-row cap removal, B2 facets) with local pass-2 work. Only memorystate.md conflicted (log union below); code auto-merged.
