@@ -94,12 +94,16 @@ export function useYouTubeSearch() {
           const query = `${track.artist} ${track.title}`;
 
           const { data, error } = await supabase.functions.invoke('youtube-search', {
-            body: { 
-              query, 
+            body: {
+              query,
               maxResults,
               artist: track.artist,
               title: track.title,
-              refresh: force
+              refresh: force,
+              // Real Discogs track length (240 is the placeholder default) —
+              // lets the backend filter Shorts/teasers and prefer duration-
+              // matched uploads.
+              durationSeconds: track.duration && track.duration !== 240 ? track.duration : undefined,
             },
           });
 

@@ -166,6 +166,16 @@ export function MobilePlayer() {
     return verifiedTracks.filter(track => activeSources.includes(track.source));
   }, [verifiedTracks, activeSources]);
 
+  // Sources present in the FULL library (not the filtered playlist) — the
+  // sheet's source chips must stay visible for a toggled-off source, or
+  // switching one off becomes a one-way door.
+  const availableSources = useMemo<SourceType[]>(() => {
+    const out: SourceType[] = [];
+    if (verifiedTracks.some(t => t.source === 'collection')) out.push('collection');
+    if (verifiedTracks.some(t => t.source === 'wantlist')) out.push('wantlist');
+    return out;
+  }, [verifiedTracks]);
+
   const handleToggleSource = useCallback((source: SourceType) => {
     setActiveSources(prev => {
       if (prev.includes(source)) {
@@ -535,12 +545,24 @@ export function MobilePlayer() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentVideoId, isPlaying]);
 
-  // Persist real duration from YouTube player back to track metadata
+  // Persist real duration from YouTube player back to track metadata.
+  // Guarded: after a skip, `playerDuration` briefly still holds the PREVIOUS
+  // video's duration while `currentTrack` is already the new track — stamping
+  // then poisons the new track (and the DB cache) with the old track's length.
+  // Only stamp when the player's loaded video is this track's video, and never
+  // stamp sub-30s "durations" (that's a bad link, not a track).
   useEffect(() => {
-    if (playerDuration > 0 && currentTrack && currentTrack.duration === 240) {
+    if (playerDuration >= 30 && currentTrack && currentTrack.duration === 240) {
+      const loadedId = typeof playerRef.current?.getVideoData === 'function'
+        ? playerRef.current.getVideoData()?.video_id
+        : undefined;
+      const expectedId = currentVideoId || currentTrack.youtubeId;
+      if (!loadedId || !expectedId || loadedId !== expectedId) return;
       applyTrackPatch(currentTrack.id, { duration: Math.round(playerDuration) });
     }
-  }, [playerDuration, currentTrack, applyTrackPatch]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playerDuration, currentTrack, currentVideoId, applyTrackPatch]);
+
 
   // Phase A1 — probe for a direct audio stream whenever the video changes.
   // The iframe plays immediately (no silent gap); when the probe succeeds the
@@ -902,6 +924,74 @@ export function MobilePlayer() {
     [currentTrack, currentVideoId, searchForVideo, skipNext, applyTrackPatch]
   );
 
+  // Bad-link repair: a "track" that reports a sub-30s duration against a
+  // multi-minute expectation is a teaser/Short that got persisted as the
+  // canonical link. Route it through the same recovery as a player error —
+  // cached alternate candidate first, then a forced re-search (refresh:true
+  // also overwrites the poisoned youtube_videos row with a better match).
+  const badDurationHandledRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (
+      playerDuration > 0 && playerDuration < 30 &&
+      currentTrack && (currentTrack.duration === 240 || currentTrack.duration >= 90) &&
+      !badDurationHandledRef.current.has(currentTrack.id)
+    ) {
+      const loadedId = typeof playerRef.current?.getVideoData === 'function'
+        ? playerRef.current.getVideoData()?.video_id
+        : undefined;
+      if (!loadedId || loadedId !== (currentVideoId || currentTrack.youtubeId)) return;
+      badDurationHandledRef.current.add(currentTrack.id);
+      handlePlayerError(150);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playerDuration, currentTrack, currentVideoId, handlePlayerError]);
+
+  // Per-source reload — re-pulls that source's rows from the cloud cache
+  // (discogs_track_cache) and rebuilds the local slice, picking up rescan
+  // link updates or imports made from another device. Placeholder rows are
+  // allowed to re-expand.
+  const reloadSource = useCallback(async (source: 'collection' | 'wantlist') => {
+    const rows = await loadTracks(ownerKey, source);
+    if (rows.length === 0) {
+      toast.info(`No cached ${source} rows in the cloud yet`);
+      return;
+    }
+    const expandedReleases = new Set<string>();
+    for (const r of rows) {
+      if (r.track_position && r.release_id) expandedReleases.add(`${r.source}-${r.release_id}`);
+    }
+    const usable = rows.filter((r) => {
+      if (r.track_position) return true;
+      if (!r.release_id) return true;
+      return !expandedReleases.has(`${r.source}-${r.release_id}`);
+    });
+    const fromDb: Track[] = usable.map((row) => ({
+      id: row.track_id,
+      title: row.title,
+      artist: row.artist,
+      album: row.album || row.title,
+      year: row.year || 0,
+      genre: row.genre || 'Unknown',
+      label: row.label || 'Unknown',
+      duration: row.duration && row.duration > 0 ? row.duration : 240,
+      coverUrl: row.cover1 || '/placeholder.svg',
+      coverUrls: [row.cover1, row.cover2, row.cover3, row.cover4].filter(Boolean) as string[],
+      youtubeId: row.youtube1 || '',
+      youtubeCandidates: [row.youtube1, row.youtube2].filter(Boolean) as string[],
+      discogsReleaseId: row.release_id || undefined,
+      discogsTrackPosition: row.track_position || undefined,
+      country: row.country || undefined,
+      workingStatus: row.working_status,
+      source: row.source,
+    }));
+    // Let placeholders from the fresh pull re-expand
+    for (const key of [...expandedReleaseIdsRef.current]) {
+      if (key.startsWith(`${source}-`)) expandedReleaseIdsRef.current.delete(key);
+    }
+    setDiscogsTracks((prev) => [...prev.filter((t) => t.source !== source), ...fromDb]);
+    toast.success(`Reloaded ${fromDb.length} ${source} tracks from cloud cache`);
+  }, [loadTracks, ownerKey]);
+
   // Demo mode helper - open current track in YouTube
   const handleOpenInYouTube = useCallback(() => {
     if (currentTrack) {
@@ -1116,6 +1206,8 @@ export function MobilePlayer() {
             syncError={discogsSync.error}
             onSyncNow={discogsSync.syncNow}
             onRescanNow={discogsSync.rescanNow}
+            onReloadCollection={() => reloadSource('collection')}
+            onReloadWantlist={() => reloadSource('wantlist')}
           />
           <button
             onClick={() => setSidebarOpen(prev => !prev)}
@@ -1303,6 +1395,7 @@ export function MobilePlayer() {
         onSignOut={signOut}
         activeSources={activeSources}
         onToggleSource={handleToggleSource}
+        availableSources={availableSources}
       />
       </div>{/* end player column */}
     </div>

@@ -35,6 +35,21 @@ interface VideoRow {
   channelTitle?: string;
   thumbnail?: string;
   durationIso?: string;
+  durationSec?: number;
+}
+
+/** "3:45" / "1:02:07" → seconds; 0 when unparseable. */
+function clockToSeconds(clock: string): number {
+  const parts = clock.split(':').map((p) => parseInt(p, 10));
+  if (parts.some((n) => Number.isNaN(n))) return 0;
+  return parts.reduce((acc, n) => acc * 60 + n, 0);
+}
+
+/** ISO8601 duration (PT3M45S) → seconds; 0 when unparseable. */
+function isoToSeconds(iso: string): number {
+  const m = iso.match(/^PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$/);
+  if (!m) return 0;
+  return (parseInt(m[1] || '0') * 3600) + (parseInt(m[2] || '0') * 60) + parseInt(m[3] || '0');
 }
 
 function isQuotaExceededPayload(errorText: string): boolean {
@@ -194,11 +209,15 @@ async function searchWithYouTubeScrape(query: string, maxResults: number): Promi
       seen.add(videoId);
       const titleMatch = block.match(/"title":\{"runs":\[\{"text":"((?:[^"\\]|\\.)*)"/);
       const channelMatch = block.match(/"ownerText":\{"runs":\[\{"text":"((?:[^"\\]|\\.)*)"/);
+      // lengthText carries the clock duration ("3:45"); Shorts/teasers either
+      // lack it or show seconds — the wrong-link poison this tier used to leak.
+      const lengthMatch = block.match(/"lengthText":\{[^}]*"simpleText":"([\d:]+)"/);
       videos.push({
         videoId,
         title: titleMatch ? unescapeJson(titleMatch[1]) : '',
         channelTitle: channelMatch ? unescapeJson(channelMatch[1]) : '',
         thumbnail: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+        durationSec: lengthMatch ? clockToSeconds(lengthMatch[1]) : 0,
       });
     }
     return videos;
@@ -223,7 +242,7 @@ async function searchWithPiped(query: string, maxResults: number): Promise<Video
       );
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
-      const data = await response.json() as { items?: Array<{ url?: string; title?: string; uploaderName?: string }> };
+      const data = await response.json() as { items?: Array<{ url?: string; title?: string; uploaderName?: string; duration?: number }> };
       const videos = (data?.items || [])
         .map((item) => {
           const idMatch = String(item?.url || '').match(/[?&]v=([\w-]{11})/);
@@ -233,6 +252,7 @@ async function searchWithPiped(query: string, maxResults: number): Promise<Video
             title: item.title || '',
             channelTitle: item.uploaderName || '',
             thumbnail: `https://i.ytimg.com/vi/${idMatch[1]}/hqdefault.jpg`,
+            durationSec: Number(item.duration) > 0 ? Number(item.duration) : 0,
           } as VideoRow;
         })
         .filter(Boolean)
@@ -269,7 +289,7 @@ async function searchWithInvidious(query: string, maxResults: number): Promise<V
         throw new Error(`HTTP ${response.status}`);
       }
 
-      const data = await response.json() as Array<{ type?: string; videoId?: string; title?: string; author?: string }>;
+      const data = await response.json() as Array<{ type?: string; videoId?: string; title?: string; author?: string; lengthSeconds?: number }>;
       const videos = (Array.isArray(data) ? data : [])
         .filter((row) => row?.type === 'video' && row?.videoId)
         .slice(0, limit)
@@ -278,6 +298,7 @@ async function searchWithInvidious(query: string, maxResults: number): Promise<V
           title: row.title || '',
           channelTitle: row.author || '',
           thumbnail: `https://i.ytimg.com/vi/${row.videoId}/hqdefault.jpg`,
+          durationSec: Number(row.lengthSeconds) > 0 ? Number(row.lengthSeconds) : 0,
         }));
 
       if (videos.length === 0) throw new Error('no matches');
@@ -349,6 +370,7 @@ async function searchWithOfficialApi(query: string, maxResults: number, pageToke
       channelTitle: item.snippet?.channelTitle,
       thumbnail: item.snippet?.thumbnails?.medium?.url || item.snippet?.thumbnails?.default?.url,
       durationIso: item.contentDetails?.duration,
+      durationSec: item.contentDetails?.duration ? isoToSeconds(item.contentDetails.duration) : 0,
     }));
 
   return { videos: embeddable, nextPageToken };
@@ -360,7 +382,10 @@ serve(async (req) => {
   }
 
   try {
-    const { query, maxResults = 5, pageToken, artist, title, refresh = false } = await req.json();
+    const { query, maxResults = 5, pageToken, artist, title, refresh = false, durationSeconds } = await req.json();
+    // Expected track length from Discogs metadata (client omits it when only
+    // the 240s placeholder default is known).
+    const expectedSec = Number(durationSeconds) > 0 ? Number(durationSeconds) : 0;
 
     if (!query) {
       return new Response(JSON.stringify({ error: 'Query is required' }), {
@@ -494,10 +519,28 @@ serve(async (req) => {
       }
     }
 
-    // 7) Score and rank results by relevance to artist + title.
+    // 6b) Drop absurdly short results — Shorts/teasers/previews. This was the
+    // wrong-link poison: the first videoRenderer on a results page can be a 5s
+    // clip, and once persisted it replays forever. Only applies when we expect
+    // a real track (>=90s) and only when it wouldn't empty the result set.
+    if (videos.length > 0 && (expectedSec === 0 || expectedSec >= 90)) {
+      const plausible = videos.filter((v) => !v.durationSec || v.durationSec >= 60);
+      if (plausible.length > 0) videos = plausible;
+    }
+
+    // 7) Score and rank results by relevance to artist + title, with a
+    // duration-closeness term when Discogs told us the real track length.
     if (videos.length > 1 && artist && title) {
+      const durationScore = (v: VideoRow): number => {
+        if (!expectedSec || !v.durationSec) return 0;
+        const ratio = Math.abs(v.durationSec - expectedSec) / expectedSec;
+        if (ratio <= 0.15) return 5;   // near-exact match — almost certainly the track
+        if (ratio <= 0.40) return 2;
+        if (ratio >= 1.0) return -5;   // double/half the length — wrong upload
+        return 0;
+      };
       videos = videos
-        .map(v => ({ ...v, _score: scoreResult(v.title || '', v.channelTitle || '', String(artist), String(title)) }))
+        .map(v => ({ ...v, _score: scoreResult(v.title || '', v.channelTitle || '', String(artist), String(title)) + durationScore(v) }))
         .sort((a, b) => (b as VideoRow & { _score: number })._score - (a as VideoRow & { _score: number })._score)
         .map(({ _score: _s, ...v }) => v as VideoRow);
     }

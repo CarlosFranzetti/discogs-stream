@@ -3,7 +3,7 @@
 > Living memory log. Updated after every engineering pass (docs → cleanup → review → security → suggestions).
 > Newest entries at the top of the Log. Do not delete old entries; they are the history.
 
-## Current State (last updated: 2026-07-20, PR #20 merged + deployed; repo↔prod drift on youtube-search synced back)
+## Current State (last updated: 2026-07-20, wrong-link fix pass: duration-aware search + cross-stamp guard + source-toggle fix + per-source reload)
 
 - **Branch**: `origin/master` at `71463b9` ("Merge PR #20: quota-chain rebuild, 1000-row cap removal, B2 crate filters") — includes Pass 2 (`279af58`: silent-gap engine-handoff fix + code-splitting). `claude/check-out-jkrunj` restarted from that merge (its pre-merge history is fully contained in master).
 - **Prod edge fns (verified live 2026-07-20)**: `youtube-search` v10 (new chain + raced instances + 20s quota-free budget + embeddability probe; verify_jwt now false via config.toml — clients send anon JWT, works), `track-cache` v12 (paged get, byte-identical to repo). Deployed via CLI by the local session that merged PR #20.
@@ -35,6 +35,7 @@
 - B2. ✅ Crate-digging filters (genre/label/decade/country chips in playlist sheet — no separate style field on Track; styles fold into `genre` at ingest)
 - B3. Cue preview mode (long-press row → low-volume preview stream; needs A1)
 - B4. Wire `'similar'` source end-to-end (extension similar-releases → playable tracks)
+- B5. **(FUTURE RELEASE — spec'd 2026-07-20 per Carlos, do NOT build yet)** Wantlist thumbs-down release-check flow: thumbs-down on a wantlist track prompts "This will remove this track — check all tracks from this release?" → on yes, queue that release's remaining tracks sequentially; if EVERY track of the release ends up thumbs-down, remove the release from the wantlist (Discogs API delete for OAuth users, local removal for CSV). Needs: release-level grouping of preferences, a confirm dialog, sequential release playback mode, and a wantlist-remove call in `discogs-api`.
 
 **Phase C — Unification & structure**
 - C1. Extension ↔ PWA state bridge (crates/playlists/carts: JSON export/import first, Supabase tables later)
@@ -96,6 +97,16 @@
 10. **Cover-art write path** — move `release_cover_art` writes behind `discogs-public`, then service-role-lock its RLS (closes the last world-writable table).
 
 ## Log
+
+### 2026-07-20 — Wrong-link diagnosis & repair; source toggles fixed; per-source cloud reload (per Carlos)
+- **Wrong links root-caused** (user screenshots: a track playing at 0:05 total; another showing the PREVIOUS track's 5:53 duration):
+  1. **Search chain accepted junk**: the scrape tier took the first `videoRenderer` on the page — which can be a 5s teaser/Short — and no tier considered duration at all. Once persisted to `youtube_videos` (keyed artist+title), a bad ID replays forever. FIX (`youtube-search`): all quota-free tiers now parse durations (scrape `lengthText`, Invidious `lengthSeconds`, Piped `duration`, API ISO8601); sub-60s results dropped when the expected track is ≥90s (or unknown); scoring adds a duration-closeness term (±15% → +5, ±40% → +2, ≥2x/half → −5) using new `durationSeconds` request field the client sends from real Discogs tracklist durations (240 placeholder omitted).
+  2. **Duration cross-stamping**: on skip, the persist-duration effect ran with the NEW `currentTrack` while `playerDuration` still held the OLD video's length → new track stamped (and DB-cached) with the previous track's duration. FIX (`MobilePlayer`): stamp only when `playerRef.getVideoData().video_id` matches the current track's video, and never stamp <30s.
+  3. **Bad-link auto-repair**: when a playing "track" reports <30s against a ≥90s (or unknown) expectation, it's routed through the error-150 recovery once per track — cached `youtube2` candidate first, else forced re-search (`refresh:true` overwrites the poisoned `youtube_videos` row). Existing poisoned links self-heal on next play.
+- **Playlist source toggles fixed**: chips were gated on sources present in the FILTERED playlist — toggling Collection or Wantlist off removed its chip (one-way door). New `availableSources` prop computed from the full library keeps both chips visible; last-active-source still can't be disabled.
+- **Settings → per-source reload**: "Reload collection" / "Reload wantlist" buttons re-pull that source's rows from `discogs_track_cache` (fresh rescan links, imports from another device), rebuild the local slice, and let placeholders re-expand. OAuth Re-sync/Rescan untouched.
+- **Loading path quick-check**: initial DB load (placeholder-drop for expanded releases, cache re-apply, chunked upserts) reviewed — sound. One consequence of the duration bug: previously-stamped wrong durations live in `discogs_track_cache` rows; they self-correct when a track plays (stamp guard now correct) or via the <30s auto-repair, no migration needed for now.
+- To-do carried: deploy updated `youtube-search`; merge branch to master for the frontend fixes to reach prod; B5 spec'd above for a future release (NOT built); rotate Discogs consumer secret; `SESSION_SECRET` (E3); refresh `invidious-audio` instances so direct audio engages.
 
 ### 2026-07-20 — Repo↔prod drift on youtube-search synced back into git
 - Status check found deployed `youtube-search` v10 AHEAD of the repo: the deploy-and-verify session had refined the chain during live verification — Invidious + Piped instances now raced via `Promise.any` (old sequential loop cost 5s per dead instance, up to 25s), a shared 20s wall-clock budget across the quota-free tiers, and a "7b" embeddability probe (1-unit `videos.list` check filters non-embeddable/deleted IDs from quota-free results before they're persisted; best-effort, keeps originals on probe failure). None of that was committed — a future repo deploy would have silently reverted it.

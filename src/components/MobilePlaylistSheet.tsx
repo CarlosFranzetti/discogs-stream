@@ -39,6 +39,9 @@ interface MobilePlaylistSheetProps {
   onSignOut: () => void;
   activeSources?: SourceType[];
   onToggleSource?: (source: SourceType) => void;
+  /** Sources present in the full library — chip visibility must not depend on
+   *  the filtered playlist, or toggling a source off hides its chip forever. */
+  availableSources?: SourceType[];
 }
 
 export function MobilePlaylistSheet({
@@ -55,6 +58,7 @@ export function MobilePlaylistSheet({
   onSignOut: _onSignOut,
   activeSources,
   onToggleSource,
+  availableSources,
 }: MobilePlaylistSheetProps) {
   const retryingId = null;
   const [searchQuery, setSearchQuery] = useState('');
@@ -64,10 +68,16 @@ export function MobilePlaylistSheet({
   const { settings } = useSettings();
   const isTight = settings.playlistSize === 'tight';
 
-  // Determine which sources are present in the playlist
-  const hasCollection = playlist.some(t => t.source === 'collection');
-  const hasWantlist = playlist.some(t => t.source === 'wantlist');
-  const showSourceFilter = (hasCollection && hasWantlist) && activeSources !== undefined;
+  // Source chips show whenever both sources exist in the LIBRARY (prop from
+  // the player, falling back to the playlist for older callers) — never gated
+  // on the filtered playlist, which loses a source the moment it's toggled off.
+  const libHasCollection = availableSources
+    ? availableSources.includes('collection')
+    : playlist.some(t => t.source === 'collection');
+  const libHasWantlist = availableSources
+    ? availableSources.includes('wantlist')
+    : playlist.some(t => t.source === 'wantlist');
+  const showSourceFilter = (libHasCollection && libHasWantlist) && activeSources !== undefined;
 
   // Phase B2 — distinct chip values per facet, most-frequent first, capped so
   // a 2k-track collection with hundreds of labels stays a chip row, not a wall.

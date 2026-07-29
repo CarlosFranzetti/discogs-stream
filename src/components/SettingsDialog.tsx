@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -32,6 +32,9 @@ interface SettingsDialogProps {
   syncError?: string | null;
   onSyncNow?: () => void;
   onRescanNow?: () => Promise<{ ok: boolean; tracksChecked?: number; linksUpdated?: number; error?: string }> | void;
+  /** Re-pull one source's rows from the cloud cache (fresh links/metadata). */
+  onReloadCollection?: () => Promise<void> | void;
+  onReloadWantlist?: () => Promise<void> | void;
 }
 
 function formatRelative(iso: string | null | undefined): string {
@@ -101,6 +104,8 @@ export function SettingsDialog({
   syncError = null,
   onSyncNow,
   onRescanNow,
+  onReloadCollection,
+  onReloadWantlist,
 }: SettingsDialogProps) {
   const { theme, setTheme } = useTheme();
   const { settings, updateSetting } = useSettings();
@@ -120,6 +125,18 @@ export function SettingsDialog({
       onOpenChange?.(false);
       onClearData();
       toast.success('All data cleared.');
+    }
+  };
+
+  const [reloadingSource, setReloadingSource] = useState<'collection' | 'wantlist' | null>(null);
+  const handleReload = async (source: 'collection' | 'wantlist') => {
+    const fn = source === 'collection' ? onReloadCollection : onReloadWantlist;
+    if (!fn) return;
+    setReloadingSource(source);
+    try {
+      await fn();
+    } finally {
+      setReloadingSource(null);
     }
   };
 
@@ -291,6 +308,31 @@ export function SettingsDialog({
             <Button variant="outline" size="sm" onClick={handleExportCSV} className="w-full gap-2 text-xs h-8">
               <Download className="w-3 h-3" /> Export playlist CSV
             </Button>
+
+            {/* Per-source cloud reload — re-pulls that source's cached rows
+                (fresh links after a rescan, imports from another device). */}
+            {(onReloadCollection || onReloadWantlist) && (
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  variant="outline" size="sm"
+                  className="w-full gap-1.5 text-[11px] h-8"
+                  onClick={() => handleReload('collection')}
+                  disabled={!onReloadCollection || reloadingSource !== null}
+                >
+                  <RefreshCw className={`w-3 h-3 ${reloadingSource === 'collection' ? 'animate-spin' : ''}`} />
+                  {reloadingSource === 'collection' ? 'Reloading…' : 'Reload collection'}
+                </Button>
+                <Button
+                  variant="outline" size="sm"
+                  className="w-full gap-1.5 text-[11px] h-8"
+                  onClick={() => handleReload('wantlist')}
+                  disabled={!onReloadWantlist || reloadingSource !== null}
+                >
+                  <RefreshCw className={`w-3 h-3 ${reloadingSource === 'wantlist' ? 'animate-spin' : ''}`} />
+                  {reloadingSource === 'wantlist' ? 'Reloading…' : 'Reload wantlist'}
+                </Button>
+              </div>
+            )}
           </section>
 
           <div className="border-t border-border/40" />

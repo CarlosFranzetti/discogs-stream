@@ -12,6 +12,7 @@ declare namespace YT {
     loadVideoById(videoId: string): void;
     getCurrentTime(): number;
     getDuration(): number;
+    getVideoData(): { video_id: string; title: string; author: string };
     getPlayerState(): number;
     getVolume(): number;
     setVolume(volume: number): void;
