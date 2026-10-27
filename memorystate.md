@@ -3,10 +3,12 @@
 > Living memory log. Updated after every engineering pass (docs → cleanup → review → security → suggestions).
 > Newest entries at the top of the Log. Do not delete old entries; they are the history.
 
-## Current State (last updated: 2026-07-20, wrong-link fix pass: duration-aware search + cross-stamp guard + source-toggle fix + per-source reload)
+## Current State (last updated: 2026-10-27, wrong-link fix pass shipped to prod; edge-fn deploy still pending)
 
-- **Branch**: `origin/master` at `71463b9` ("Merge PR #20: quota-chain rebuild, 1000-row cap removal, B2 crate filters") — includes Pass 2 (`279af58`: silent-gap engine-handoff fix + code-splitting). `claude/check-out-jkrunj` restarted from that merge (its pre-merge history is fully contained in master).
-- **Prod edge fns (verified live 2026-07-20)**: `youtube-search` v10 (new chain + raced instances + 20s quota-free budget + embeddability probe; verify_jwt now false via config.toml — clients send anon JWT, works), `track-cache` v12 (paged get, byte-identical to repo). Deployed via CLI by the local session that merged PR #20.
+- **Branch**: `origin/master` at `c613180` ("Merge pull request #21 … Remove duplicate useDirectAudio 2.ts"), which contains the whole wrong-link pass (`644aa78`), the memorystate ship log (`f88522f`) and the dup-file removal (`083074c`). `claude/check-out-jkrunj` is in sync with it. PR #20 (`71463b9`) and Pass 2 (`279af58`) are ancestors.
+- **Prod frontend**: Vercel deployment `dpl_8EWtQapnVpeVPczpN2TJTosWs5ZA` READY at https://discogs-stream.vercel.app, built from `c613180`.
+- **Prod edge fns**: `youtube-search` **v10** (raced instances + 20s quota-free budget + embeddability probe) — ⚠️ does NOT yet include the duration filter/scoring from `644aa78`; `track-cache` v12 (paged get, matches repo).
+- ⚠️ **verify_jwt drift to respect before any blanket deploy**: `config.toml` says `false` for ALL nine functions, but remote `invidious-audio` and `yt-dlp-audio` are `true`. A bare `supabase functions deploy` (no function name) would flip those two to no-JWT. Always deploy functions **by name**.
 - **Tests**: 9/9 passing · **typecheck** (`tsc -p tsconfig.app.json`): 0 errors · **Lint**: 0 errors / 15 warnings (shadcn boilerplate + 1 intentional deps-array) · **Build**: OK (code-splitting still the top optimization candidate)
 - **Shipped 2026-07-17** (`4eed9e2`, auto-deployed to prod via Vercel Git integration): Phase A complete (A1 direct audio, A2 Media Session, A3 candidate-failover, A4 set-length totals, A5 pitch fader) + B1 wantlist price badges + extension review fixes + `discogs-public` path proxy + CI workflow
 - **Supabase side**: hardening deployed + live-verified 2026-07-17 (RLS migration synced; `track-cache` v7 / `track-media` v6 / `youtube-rescan-weekly` v7; 401 guards verified against prod)
@@ -97,6 +99,11 @@
 10. **Cover-art write path** — move `release_cover_art` writes behind `discogs-public`, then service-role-lock its RLS (closes the last world-writable table).
 
 ## Log
+
+### 2026-10-27 — Header refreshed; edge-fn deploys moved to GitHub Actions (no laptop needed)
+- Current State header was stale (still claimed master at `71463b9`); corrected to `c613180` with the real prod Vercel deployment and the v10-vs-repo gap on `youtube-search` spelled out.
+- **New `.github/workflows/deploy-edge-functions.yml`**: deploys edge functions from CI so a local Supabase CLI is no longer required. Push to master touching `supabase/functions/**` deploys only the function dirs that changed in that push; manual run takes space-separated names. **Always deploys BY NAME** — a bare `supabase functions deploy` would flip remote `invidious-audio`/`yt-dlp-audio` from verify_jwt=true to false (config.toml says false for all nine), so blanket deploys are structurally prevented. `_shared` changes emit a warning instead of guessing dependents. Needs one repo secret: `SUPABASE_ACCESS_TOKEN`.
+- Project ref hardcoded in the workflow deliberately: it is the hostname of every request the public site already makes, so it is not a secret; only the token is.
 
 ### 2026-07-20 — Wrong-link diagnosis & repair; source toggles fixed; per-source cloud reload (per Carlos)
 - **Wrong links root-caused** (user screenshots: a track playing at 0:05 total; another showing the PREVIOUS track's 5:53 duration):

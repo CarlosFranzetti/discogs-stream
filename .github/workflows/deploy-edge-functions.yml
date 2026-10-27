@@ -1,0 +1,89 @@
+name: Deploy edge functions
+
+# Lets edge functions ship without a local Supabase CLI.
+#
+# Triggers:
+#   - push to master touching supabase/functions/** -> deploys ONLY the
+#     function directories that actually changed in that push
+#   - manual run -> deploys the space-separated names you type
+#
+# Deploys are always BY NAME, never a bare `supabase functions deploy`:
+# config.toml declares verify_jwt=false for all nine functions, but remote
+# invidious-audio and yt-dlp-audio are verify_jwt=true. A blanket deploy would
+# silently flip those two to no-JWT. Changing that is a deliberate act, not a
+# side effect of shipping an unrelated function.
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'supabase/functions/**'
+  workflow_dispatch:
+    inputs:
+      functions:
+        description: 'Space-separated function names (e.g. "youtube-search track-cache")'
+        required: true
+        default: 'youtube-search'
+
+# The project ref is not a secret: it is the hostname every request from the
+# public site already carries. Only the access token is sensitive.
+env:
+  SUPABASE_PROJECT_REF: lircvbmcqxbnjaeyrpui
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2 # need the previous commit to diff against
+
+      - name: Work out which functions to deploy
+        id: pick
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            FUNCS="${{ github.event.inputs.functions }}"
+          else
+            # Function dirs touched by this push, excluding _shared (which has
+            # no deployable function of its own).
+            FUNCS=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} -- 'supabase/functions/**' \
+              | awk -F/ '{print $3}' | grep -v '^_shared$' | sort -u | tr '\n' ' ')
+            if git diff --name-only ${{ github.event.before }} ${{ github.sha }} -- 'supabase/functions/_shared/**' | grep -q .; then
+              echo "::warning::supabase/functions/_shared changed. Functions importing it are NOT redeployed automatically — run this workflow manually for each one that needs the new shared code."
+            fi
+          fi
+          FUNCS=$(echo "$FUNCS" | xargs || true)
+          echo "functions=$FUNCS" >> "$GITHUB_OUTPUT"
+          if [ -z "$FUNCS" ]; then
+            echo "No function directories changed — nothing to deploy."
+          else
+            echo "Will deploy: $FUNCS"
+          fi
+
+      - name: Setup Supabase CLI
+        if: steps.pick.outputs.functions != ''
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Deploy
+        if: steps.pick.outputs.functions != ''
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SUPABASE_ACCESS_TOKEN:-}" ]; then
+            echo "::error::SUPABASE_ACCESS_TOKEN is not set. Add it under Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+          for fn in ${{ steps.pick.outputs.functions }}; do
+            if [ ! -d "supabase/functions/$fn" ]; then
+              echo "::error::supabase/functions/$fn does not exist"
+              exit 1
+            fi
+            echo "::group::Deploying $fn"
+            supabase functions deploy "$fn" --project-ref "$SUPABASE_PROJECT_REF"
+            echo "::endgroup::"
+          done
