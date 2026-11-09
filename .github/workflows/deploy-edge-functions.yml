@@ -84,6 +84,6 @@ jobs:
               exit 1
             fi
             echo "::group::Deploying $fn"
-            supabase functions deploy "$fn" --project-ref "$SUPABASE_PROJECT_REF"
+            supabase functions deploy "$fn" --remote="$SUPABASE_PROJECT_REF" --yes
             echo "::endgroup::"
           done
