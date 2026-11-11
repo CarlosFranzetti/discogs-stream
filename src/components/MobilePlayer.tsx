@@ -26,6 +26,7 @@ import { SourceType } from './SourceFilters';
 import { QuotaBanner } from './QuotaBanner';
 import { toast } from 'sonner';
 import { useSettings } from '@/hooks/useSettings';
+import { useUserPlaylists } from '@/hooks/useUserPlaylists';
 import { SettingsDialog } from '@/components/SettingsDialog';
 import { useTrackMediaResolver } from '@/hooks/useTrackMediaResolver';
 import { useBackgroundVerifier } from '@/hooks/useBackgroundVerifier';
@@ -161,10 +162,41 @@ export function MobilePlayer() {
     verifiedTracksRef.current = verifiedTracks;
   }, [verifiedTracks]);
 
+  // User playlists. Playing one works by narrowing the SAME pipeline rather
+  // than pushing a list into usePlayer directly: usePlayer re-merges
+  // `initialTracks` whenever the library updates, so a hand-set playlist
+  // would be clobbered by the next resolved track. Narrowing here survives
+  // that, and shuffle / skip / verification all keep working unchanged.
+  const {
+    playlists: userPlaylists,
+    createPlaylist,
+    deletePlaylist,
+    addTrackToPlaylist,
+    removeTrackFromPlaylist,
+    resolvePlaylist,
+  } = useUserPlaylists();
+  const [activePlaylistId, setActivePlaylistId] = useState<string | null>(null);
+
   // Filter tracks by active sources - use verified tracks only
   const filteredTracks = useMemo(() => {
+    const active = activePlaylistId
+      ? userPlaylists.find((p) => p.id === activePlaylistId)
+      : null;
+    if (active) {
+      const resolved = resolvePlaylist(active, verifiedTracks);
+      // An empty resolve means the library hasn't loaded yet — fall through to
+      // the library rather than leaving the user staring at an empty player.
+      if (resolved.length > 0) return resolved;
+    }
     return verifiedTracks.filter(track => activeSources.includes(track.source));
-  }, [verifiedTracks, activeSources]);
+  }, [verifiedTracks, activeSources, activePlaylistId, userPlaylists, resolvePlaylist]);
+
+  // A deleted playlist must not leave the player pinned to a ghost.
+  useEffect(() => {
+    if (activePlaylistId && !userPlaylists.some((p) => p.id === activePlaylistId)) {
+      setActivePlaylistId(null);
+    }
+  }, [activePlaylistId, userPlaylists]);
 
   // Sources present in the FULL library (not the filtered playlist) — the
   // sheet's source chips must stay visible for a toggled-off source, or
@@ -1396,6 +1428,14 @@ export function MobilePlayer() {
         activeSources={activeSources}
         onToggleSource={handleToggleSource}
         availableSources={availableSources}
+        userPlaylists={userPlaylists}
+        activePlaylistId={activePlaylistId}
+        onPlayPlaylist={(id) => { setActivePlaylistId(id); setCurrentIndex(0); setCurrentTime(0); }}
+        onExitPlaylist={() => setActivePlaylistId(null)}
+        onCreatePlaylist={(name, trackIds) => createPlaylist(name, trackIds)}
+        onDeletePlaylist={deletePlaylist}
+        onAddTrackToPlaylist={addTrackToPlaylist}
+        onRemoveTrackFromPlaylist={removeTrackFromPlaylist}
       />
       </div>{/* end player column */}
     </div>

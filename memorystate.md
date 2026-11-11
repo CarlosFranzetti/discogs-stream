@@ -3,11 +3,11 @@
 > Living memory log. Updated after every engineering pass (docs → cleanup → review → security → suggestions).
 > Newest entries at the top of the Log. Do not delete old entries; they are the history.
 
-## Current State (last updated: 2026-10-27, wrong-link fix pass shipped to prod; edge-fn deploy still pending)
+## Current State (last updated: 2026-11-11, playlist UX pass: virtualized list, search overhaul, user playlists)
 
-- **Branch**: `origin/master` at `c613180` ("Merge pull request #21 … Remove duplicate useDirectAudio 2.ts"), which contains the whole wrong-link pass (`644aa78`), the memorystate ship log (`f88522f`) and the dup-file removal (`083074c`). `claude/check-out-jkrunj` is in sync with it. PR #20 (`71463b9`) and Pass 2 (`279af58`) are ancestors.
-- **Prod frontend**: Vercel deployment `dpl_8EWtQapnVpeVPczpN2TJTosWs5ZA` READY at https://discogs-stream.vercel.app, built from `c613180`.
-- **Prod edge fns**: `youtube-search` **v10** (raced instances + 20s quota-free budget + embeddability probe) — ⚠️ does NOT yet include the duration filter/scoring from `644aa78`; `track-cache` v12 (paged get, matches repo).
+- **Branch**: `origin/master` at `da95f12` (Node 26 bump; contains PR #21/#22, the CI deploy workflow and the whole wrong-link pass). Work branch `claude/check-out-jkrunj` restarted from it.
+- **Prod frontend**: Vercel production READY at `da95f12` (`dpl_3wuStn4W38PuEpbFpNaSnhQjmsfu`) on https://discogs-stream.vercel.app.
+- **Prod edge fns**: `youtube-search` **v15**, deployed BY CI (GH Actions runner entrypoint) and including the duration filter/scoring; `track-cache` v14. `invidious-audio`/`yt-dlp-audio` remain verify_jwt=true.
 - ⚠️ **verify_jwt drift to respect before any blanket deploy**: `config.toml` says `false` for ALL nine functions, but remote `invidious-audio` and `yt-dlp-audio` are `true`. A bare `supabase functions deploy` (no function name) would flip those two to no-JWT. Always deploy functions **by name**.
 - **Tests**: 9/9 passing · **typecheck** (`tsc -p tsconfig.app.json`): 0 errors · **Lint**: 0 errors / 15 warnings (shadcn boilerplate + 1 intentional deps-array) · **Build**: OK (code-splitting still the top optimization candidate)
 - **Shipped 2026-07-17** (`4eed9e2`, auto-deployed to prod via Vercel Git integration): Phase A complete (A1 direct audio, A2 Media Session, A3 candidate-failover, A4 set-length totals, A5 pitch fader) + B1 wantlist price badges + extension review fixes + `discogs-public` path proxy + CI workflow
@@ -99,6 +99,20 @@
 10. **Cover-art write path** — move `release_cover_art` writes behind `discogs-public`, then service-role-lock its RLS (closes the last world-writable table).
 
 ## Log
+
+### 2026-11-11 — Playlist UX pass: virtualization (D2), search overhaul, user playlists (NEW)
+- **Confirmed deployed before starting**: prod frontend READY at `da95f12`; `youtube-search` **v15** deployed *by the CI workflow* (entrypoint path is a GH Actions runner), so the duration-filter fix from `644aa78` is live. `invidious-audio`/`yt-dlp-audio` still verify_jwt=true — the by-name deploy guard did its job.
+- **D2 virtualization DONE** — the sheet rendered every row: a 1800-track queue mounted ~1800 DOM rows and fired ~1800 cover requests on open. Now `@tanstack/react-virtual` over a plain overflow container (not Radix ScrollArea, so the virtualizer owns a real scroll element and mobile momentum scrolling is native). **Measured: 1800 tracks → 22 rows mounted**, 12 scroll jumps in 876ms, window stays ~30.
+- Also killed the per-row `playlist.indexOf(track)` (O(n²) per render — 2ms at 1800, but ~60ms at 10k) via an id→index Map; added `loading="lazy"`/`decoding="async"` to covers.
+- **Search overhaul**: was title+artist only and un-debounced. Now spans title/artist/album/label/year, multi-term (all terms must match, any field any order), 150ms debounce, clear (×) button, and an empty state with a one-tap "clear search & filters". **Verified: "transmat" → 225 matches, "1994" → 40** — both returned nothing before.
+- **User playlists (NEW)** — `useUserPlaylists` hook, localStorage-backed, storing track IDs not copies (a 500-track playlist is a few KB and can never go stale against library metadata). Shape matches a future `user_playlists` table so the Supabase move is transport-only (C1).
+  - Sheet now has Queue / Playlists tabs; create, delete, play, add/remove track.
+  - Per-row `+` opens an inline picker (existing playlists + "New playlist…"); inside an open playlist the affordance flips to `×` = remove.
+  - "Save these N as…" turns a search/filter result into a playlist in one tap.
+  - **Playback design**: playing a playlist narrows `filteredTracks` in MobilePlayer rather than calling `setPlaylist` — usePlayer re-merges `initialTracks` on every library update and would clobber a hand-set list. Shuffle/skip/verification keep working untouched. Deleting the active playlist falls back to the library.
+- **Verified in a real browser** (Playwright, 390×844, 1800-row CSV through the actual import path): build playlist from rows → play → queue narrows to 3 → "Playing from" banner → exit → back to 1800. Zero page errors.
+- Fixed en route: Playlists tab header was reporting queue stats ("40 of 1800 tracks") under a playlist heading.
+- Still open (unchanged): `invidious-audio` instance list is rotten so direct audio never engages and the pitch fader stays inert against the iframe; rotate Discogs consumer secret; `SESSION_SECRET` (E3); B5 spec'd not built.
 
 ### 2026-10-27 — Header refreshed; edge-fn deploys moved to GitHub Actions (no laptop needed)
 - Current State header was stale (still claimed master at `71463b9`); corrected to `c613180` with the real prod Vercel deployment and the v10-vs-repo gap on `youtube-search` spelled out.
