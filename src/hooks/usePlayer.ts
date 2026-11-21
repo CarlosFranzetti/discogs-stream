@@ -17,7 +17,32 @@ function sortSequential(tracks: Track[]): Track[] {
   });
 }
 
-export function usePlayer(initialTracks?: Track[], dislikedTracks?: Track[]) {
+export interface UsePlayerOptions {
+  /**
+   * Non-null while `initialTracks` is a hand-ordered set (a user playlist);
+   * the value identifies which one. In an ordered context "shuffle off" means
+   * the order the tracks were given in, not the artist/album sort, and
+   * entering one starts at its first track with shuffle off. Leaving restores
+   * the shuffle setting the listener had before.
+   */
+  orderedContextKey?: string | null;
+}
+
+export interface ContextStart {
+  /** Start shuffled instead of in the given order. */
+  shuffle?: boolean;
+  /** Start on this track instead of the first one. */
+  startTrackId?: string;
+}
+
+export function usePlayer(
+  initialTracks?: Track[],
+  dislikedTracks?: Track[],
+  options: UsePlayerOptions = {},
+) {
+  const orderedContextKey = options.orderedContextKey ?? null;
+  const isOrdered = orderedContextKey !== null;
+
   // Track if we're using demo/mock data
   const [isUsingMockData, setIsUsingMockData] = useState(() => !initialTracks || initialTracks.length === 0);
   
@@ -38,8 +63,42 @@ export function usePlayer(initialTracks?: Track[], dislikedTracks?: Track[]) {
   
   const playerRef = useRef<YT.Player | null>(null);
   const intervalRef = useRef<number | null>(null);
+  const contextKeyRef = useRef<string | null>(orderedContextKey);
+  const shuffleBeforeContextRef = useRef<boolean | null>(null);
+  const pendingStartRef = useRef<({ key: string } & ContextStart) | null>(null);
 
   const [isShuffle, setIsShuffle] = useState(true);
+
+  // Keep the same TRACK current when the playlist is reordered, re-sorted or
+  // trimmed. This is done during render (React's "adjust state when a prop
+  // changes" pattern) rather than in an effect, so no render ever commits
+  // with the index pointing at the wrong track — an effect would let one
+  // through, and the player would start loading the wrong video before the
+  // correction landed.
+  //
+  // The anchor is whatever sat at the current index in the previous playlist.
+  // When the index moved in the same batch (dislike = remove + skip), that is
+  // the track the caller meant to land on, which is the right thing to follow.
+  const [prevPlaylist, setPrevPlaylist] = useState(playlist);
+  // An explicit start position for one exact playlist array (entering a user
+  // playlist, "Play in order", tapping a row in the editor). It wins over the
+  // anchor: the listener asked for a specific track.
+  const [startAt, setStartAt] = useState<{ playlist: Track[]; index: number } | null>(null);
+  if (prevPlaylist !== playlist) {
+    setPrevPlaylist(playlist);
+    if (startAt && startAt.playlist === playlist) {
+      setStartAt(null);
+      if (currentIndex !== startAt.index) setCurrentIndex(startAt.index);
+    } else {
+      const anchorId = prevPlaylist[currentIndex]?.id;
+      if (anchorId && playlist[currentIndex]?.id !== anchorId) {
+        const found = playlist.findIndex((t) => t.id === anchorId);
+        // Not found means the current track was removed: keep the index so
+        // the track that followed it slides into place (clamped below).
+        if (found !== -1) setCurrentIndex(found);
+      }
+    }
+  }
 
   const currentTrack = playlist[currentIndex];
 
@@ -62,6 +121,51 @@ export function usePlayer(initialTracks?: Track[], dislikedTracks?: Track[]) {
     }
 
     const filtered = filterDisliked(initialTracks);
+
+    // Entering, leaving or switching an ordered context (a user playlist).
+    if (contextKeyRef.current !== orderedContextKey) {
+      const wasOrdered = contextKeyRef.current !== null;
+      contextKeyRef.current = orderedContextKey;
+      const pending = pendingStartRef.current;
+      pendingStartRef.current = null;
+      const start = pending && pending.key === orderedContextKey ? pending : null;
+      let shuffle = isShuffle;
+      if (isOrdered) {
+        if (!wasOrdered) shuffleBeforeContextRef.current = isShuffle;
+        shuffle = !!start?.shuffle;
+      } else if (shuffleBeforeContextRef.current !== null) {
+        shuffle = shuffleBeforeContextRef.current;
+        shuffleBeforeContextRef.current = null;
+      }
+      const next = shuffle
+        ? shuffleTracks(filtered)
+        : isOrdered
+        ? filtered
+        : sortSequential(filtered);
+      if (shuffle !== isShuffle) setIsShuffle(shuffle);
+      setIsUsingMockData(false);
+      setPlaylist(next);
+      if (isOrdered) {
+        // A playlist starts from its first track (or the row that was
+        // tapped). Leaving one keeps whatever is playing — the render-time
+        // anchor finds it in the library.
+        const at = start?.startTrackId ? next.findIndex((t) => t.id === start.startTrackId) : 0;
+        setStartAt({ playlist: next, index: Math.max(0, at) });
+        setCurrentTime(0);
+        if (start) setIsPlaying(true);
+      }
+      return;
+    }
+
+    // Ordered context, shuffle off: the given order is the playing order.
+    // Reorders, removals and metadata updates all flow straight through.
+    if (isOrdered && !isShuffle) {
+      setIsUsingMockData(false);
+      setPlaylist((prev) =>
+        prev.length === filtered.length && prev.every((t, i) => t === filtered[i]) ? prev : filtered
+      );
+      return;
+    }
 
     setPlaylist(prev => {
       if (isUsingMockData && filtered.length > 0) {
@@ -99,35 +203,7 @@ export function usePlayer(initialTracks?: Track[], dislikedTracks?: Track[]) {
         return sortSequential(filtered);
       }
     });
-  }, [initialTracks, dislikedTracks, isShuffle, filterDisliked, isUsingMockData]);
-
-  // Adjust currentIndex if the current track moves
-  // This is tricky because `setPlaylist` is async. 
-  // We can trust that if we swap the playlist, we should find the current track ID.
-  const prevCurrentTrackIdRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (currentTrack) {
-      prevCurrentTrackIdRef.current = currentTrack.id;
-    }
-  }, [currentTrack]);
-
-  // When playlist changes, try to keep the same track playing
-  useEffect(() => {
-    const id = prevCurrentTrackIdRef.current;
-    if (!id || playlist.length === 0) return;
-
-    // Only update index if the track at current index is NOT the same as before
-    // (Meaning the playlist shifted)
-    if (playlist[currentIndex]?.id !== id) {
-      const newIndex = playlist.findIndex(t => t.id === id);
-      if (newIndex !== -1) {
-        setCurrentIndex(newIndex);
-      } else {
-        // Track removed? Go to 0 or nearest?
-        setCurrentIndex(0);
-      }
-    }
-  }, [playlist]);
+  }, [initialTracks, dislikedTracks, isShuffle, filterDisliked, isUsingMockData, orderedContextKey, isOrdered]);
 
   useEffect(() => {
     if (playlist.length === 0) {
@@ -153,14 +229,54 @@ export function usePlayer(initialTracks?: Track[], dislikedTracks?: Track[]) {
            return shuffled;
         });
       } else {
-        // Turning OFF shuffle — restore artist/album sequential order
+        // Turning OFF shuffle — restore artist/album sequential order, or the
+        // playlist's own order inside an ordered context.
         if (initialTracks) {
-           setPlaylist(sortSequential(filterDisliked(initialTracks)));
+           const filtered = filterDisliked(initialTracks);
+           setPlaylist(isOrdered ? filtered : sortSequential(filtered));
         }
       }
       return nextState;
     });
-  }, [initialTracks, filterDisliked]);
+  }, [initialTracks, filterDisliked, isOrdered]);
+
+  /**
+   * Restart the CURRENT input tracks from a chosen point: in order (the
+   * playlist's own order inside an ordered context, the artist/album sort
+   * otherwise) or shuffled, on the first track or a named one. Autoplays.
+   */
+  const playFromContext = useCallback((start: ContextStart = {}) => {
+    if (!initialTracks || initialTracks.length === 0) return;
+    const filtered = filterDisliked(initialTracks);
+    if (filtered.length === 0) return;
+    const shuffle = !!start.shuffle;
+    const next = shuffle ? shuffleTracks(filtered) : isOrdered ? filtered : sortSequential(filtered);
+    const at = start.startTrackId ? next.findIndex((t) => t.id === start.startTrackId) : 0;
+    const index = Math.max(0, at);
+    setIsShuffle(shuffle);
+    if (next === playlist) {
+      // Same array (already playing this order): a plain index change.
+      setCurrentIndex(index);
+    } else {
+      setStartAt({ playlist: next, index });
+      setPlaylist(next);
+    }
+    setCurrentTime(0);
+    setTimeout(() => {
+      if (playerRef.current && typeof playerRef.current.playVideo === 'function') {
+        playerRef.current.playVideo();
+      }
+      setIsPlaying(true);
+    }, 100);
+  }, [initialTracks, filterDisliked, isOrdered, playlist]);
+
+  /**
+   * Call just before switching `orderedContextKey` to `key`: the switch then
+   * starts the way `start` says, and autoplays.
+   */
+  const requestContextStart = useCallback((key: string, start: ContextStart = {}) => {
+    pendingStartRef.current = { key, ...start };
+  }, []);
 
   // Reset playerDuration when the track changes
   useEffect(() => {
@@ -335,5 +451,7 @@ export function usePlayer(initialTracks?: Track[], dislikedTracks?: Track[]) {
     removeFromPlaylist,
     isShuffle,
     toggleShuffle,
+    playFromContext,
+    requestContextStart,
   };
 }

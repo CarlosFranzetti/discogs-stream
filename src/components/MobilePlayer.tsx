@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { usePlayer } from '@/hooks/usePlayer';
+import { usePlayer, type ContextStart } from '@/hooks/usePlayer';
 import { useDiscogsAuth } from '@/hooks/useDiscogsAuth';
 import { useDiscogsData } from '@/hooks/useDiscogsData';
 import { useYouTubeSearch } from '@/hooks/useYouTubeSearch';
@@ -172,15 +172,22 @@ export function MobilePlayer() {
   const {
     playlists: userPlaylists,
     createPlaylist,
+    renamePlaylist,
     deletePlaylist,
+    restorePlaylist,
     addTrackToPlaylist,
     removeTrackFromPlaylist,
+    moveTrackById,
+    setPlaylistTracks,
     resolvePlaylist,
   } = useUserPlaylists();
   const [activePlaylistId, setActivePlaylistId] = useState<string | null>(null);
 
-  // Filter tracks by active sources - use verified tracks only
-  const filteredTracks = useMemo(() => {
+  // Filter tracks by active sources - use verified tracks only.
+  // `orderedContextKey` is non-null while a user playlist is what's playing:
+  // it tells usePlayer the tracks arrive in a hand-set order that "shuffle
+  // off" must respect (instead of the artist/album sort used for the library).
+  const { filteredTracks, orderedContextKey } = useMemo(() => {
     const active = activePlaylistId
       ? userPlaylists.find((p) => p.id === activePlaylistId)
       : null;
@@ -188,9 +195,12 @@ export function MobilePlayer() {
       const resolved = resolvePlaylist(active, verifiedTracks);
       // An empty resolve means the library hasn't loaded yet — fall through to
       // the library rather than leaving the user staring at an empty player.
-      if (resolved.length > 0) return resolved;
+      if (resolved.length > 0) return { filteredTracks: resolved, orderedContextKey: active.id as string | null };
     }
-    return verifiedTracks.filter(track => activeSources.includes(track.source));
+    return {
+      filteredTracks: verifiedTracks.filter(track => activeSources.includes(track.source)),
+      orderedContextKey: null as string | null,
+    };
   }, [verifiedTracks, activeSources, activePlaylistId, userPlaylists, resolvePlaylist]);
 
   // A deleted playlist must not leave the player pinned to a ghost.
@@ -246,7 +256,22 @@ export function MobilePlayer() {
     removeFromPlaylist,
     isShuffle,
     toggleShuffle,
-  } = usePlayer(filteredTracks, persistedDislikedTracks);
+    playFromContext,
+    requestContextStart,
+  } = usePlayer(filteredTracks, persistedDislikedTracks, { orderedContextKey });
+
+  // Play a user playlist: in its own order from the top, shuffled, or from a
+  // tapped row. If it is already the playing context this is a restart;
+  // otherwise the start is queued and applied as the context switches.
+  const handlePlayPlaylist = useCallback((id: string, start: ContextStart = {}) => {
+    setHasUserInteracted(true);
+    if (id === orderedContextKey) {
+      playFromContext(start);
+    } else {
+      requestContextStart(id, start);
+      setActivePlaylistId(id);
+    }
+  }, [orderedContextKey, playFromContext, requestContextStart]);
 
   const audioController = useAudioController();
   const pitchControl = usePitch();
@@ -1457,12 +1482,17 @@ export function MobilePlayer() {
         availableSources={availableSources}
         userPlaylists={userPlaylists}
         activePlaylistId={activePlaylistId}
-        onPlayPlaylist={(id) => { setActivePlaylistId(id); setCurrentIndex(0); setCurrentTime(0); }}
+        libraryTracks={verifiedTracks}
+        onPlayPlaylist={handlePlayPlaylist}
         onExitPlaylist={() => setActivePlaylistId(null)}
         onCreatePlaylist={(name, trackIds) => createPlaylist(name, trackIds)}
         onDeletePlaylist={deletePlaylist}
+        onRestorePlaylist={restorePlaylist}
+        onRenamePlaylist={renamePlaylist}
         onAddTrackToPlaylist={addTrackToPlaylist}
         onRemoveTrackFromPlaylist={removeTrackFromPlaylist}
+        onMoveTrackInPlaylist={moveTrackById}
+        onSetPlaylistTracks={setPlaylistTracks}
       />
       </div>{/* end player column */}
     </div>

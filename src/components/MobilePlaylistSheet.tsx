@@ -3,29 +3,33 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Track } from '@/types/track';
 import {
-  Music, Heart, ShoppingCart, Disc3, User, Ban, Search, Filter, X,
-  ListMusic, Plus, Play, Trash2, Check, ArrowLeft,
+  Music, Heart, ShoppingCart, Disc3, User, Ban, Search, X,
+  ListMusic, Plus, Play, Check, ArrowLeft, ChevronRight, Pencil,
 } from 'lucide-react';
 import { useSettings } from '@/hooks/useSettings';
 import { useWantlistPrices } from '@/hooks/useWantlistPrices';
 import type { UserPlaylist } from '@/hooks/useUserPlaylists';
+import type { ContextStart } from '@/hooks/usePlayer';
+import {
+  EMPTY_FACETS, FACET_KEYS, countSelected, facetOptions, filterTracks, formatRuntime,
+  parseSearchTerms, type FacetKey, type FacetSelections,
+} from '@/lib/facets';
+import { FacetRail, type PickerTarget, type SortKey } from './playlist/FacetRail';
+import { FacetPicker } from './playlist/FacetPicker';
+import { PlaylistEditor } from './playlist/PlaylistEditor';
 import { SourceType } from './SourceFilters';
 
-// Phase B2 — crate-digging facets. Values come off the Track fields that are
-// already cached per track (styles fold into `genre` at ingest; year is
-// bucketed into decades so the chip row stays short).
-type FacetKey = 'genre' | 'label' | 'decade' | 'country';
-type FacetSelections = Record<FacetKey, string[]>;
+/** How long the Undo bar stays up. */
+const UNDO_MS = 6000;
 
-const EMPTY_FACETS: FacetSelections = { genre: [], label: [], decade: [], country: [] };
-const FACET_CHIP_CAP = 12;
-
-function facetValue(track: Track, facet: FacetKey): string | undefined {
-  switch (facet) {
-    case 'genre': return track.genre && track.genre !== 'Unknown' ? track.genre : undefined;
-    case 'label': return track.label && track.label !== 'Unknown' ? track.label : undefined;
-    case 'decade': return track.year ? `${Math.floor(track.year / 10) * 10}s` : undefined;
-    case 'country': return track.country || undefined;
+function sortValue(track: Track, key: SortKey): string | number {
+  switch (key) {
+    case 'artist': return track.artist;
+    case 'title': return track.title;
+    case 'genre': return track.genre || '';
+    case 'label': return track.label || '';
+    case 'year': return track.year || 0;
+    default: return 0;
   }
 }
 
@@ -51,15 +55,22 @@ interface MobilePlaylistSheetProps {
   /** Sources present in the full library — chip visibility must not depend on
    *  the filtered playlist, or toggling a source off hides its chip forever. */
   availableSources?: SourceType[];
+  /** The whole library (not the queue, which narrows to the playing playlist)
+   *  — what playlists resolve against and what "Add tracks" offers. */
+  libraryTracks?: Track[];
   // User playlists
   userPlaylists?: UserPlaylist[];
   activePlaylistId?: string | null;
-  onPlayPlaylist?: (id: string) => void;
+  onPlayPlaylist?: (id: string, start?: ContextStart) => void;
   onExitPlaylist?: () => void;
-  onCreatePlaylist?: (name: string, trackIds?: string[]) => void;
+  onCreatePlaylist?: (name: string, trackIds?: string[]) => UserPlaylist | void;
   onDeletePlaylist?: (id: string) => void;
+  onRestorePlaylist?: (playlist: UserPlaylist, index: number) => void;
+  onRenamePlaylist?: (id: string, name: string) => void;
   onAddTrackToPlaylist?: (playlistId: string, trackId: string) => void;
   onRemoveTrackFromPlaylist?: (playlistId: string, trackId: string) => void;
+  onMoveTrackInPlaylist?: (playlistId: string, trackId: string, beforeTrackId: string | null) => void;
+  onSetPlaylistTracks?: (playlistId: string, trackIds: string[]) => void;
 }
 
 export function MobilePlaylistSheet({
@@ -77,21 +88,33 @@ export function MobilePlaylistSheet({
   activeSources,
   onToggleSource,
   availableSources,
+  libraryTracks,
   userPlaylists = [],
   activePlaylistId = null,
   onPlayPlaylist,
   onExitPlaylist,
   onCreatePlaylist,
   onDeletePlaylist,
+  onRestorePlaylist,
+  onRenamePlaylist,
   onAddTrackToPlaylist,
   onRemoveTrackFromPlaylist,
+  onMoveTrackInPlaylist,
+  onSetPlaylistTracks,
 }: MobilePlaylistSheetProps) {
   const [tab, setTab] = useState<'queue' | 'playlists'>('queue');
   const [searchInput, setSearchInput] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
-  const [sortBy, setSortBy] = useState<'none' | 'artist' | 'title' | 'genre'>('none');
-  const [showFilters, setShowFilters] = useState(false);
+  const [sortBy, setSortBy] = useState<SortKey>('none');
+  // One rail, one picker: a facet (or Sort) takes over the panel body while
+  // it is being chosen, so the panel never grows however many labels exist.
+  const [pickerTarget, setPickerTarget] = useState<PickerTarget | null>(null);
   const [facetSelections, setFacetSelections] = useState<FacetSelections>(EMPTY_FACETS);
+  const [saveOpen, setSaveOpen] = useState(false);
+  const [openPlaylistId, setOpenPlaylistId] = useState<string | null>(null);
+  const [notice, setNotice] = useState<{
+    key: number; message: string; actionLabel?: string; run?: () => void;
+  } | null>(null);
   const [addingTrackId, setAddingTrackId] = useState<string | null>(null);
   const [newPlaylistName, setNewPlaylistName] = useState('');
   const { settings } = useSettings();
@@ -124,67 +147,32 @@ export function MobilePlaylistSheet({
     return m;
   }, [playlist]);
 
-  // Phase B2 — distinct chip values per facet, most-frequent first, capped so
-  // a 2k-track collection with hundreds of labels stays a chip row, not a wall.
-  const facetOptions = useMemo(() => {
-    const options = {} as Record<FacetKey, { value: string; count: number }[]>;
-    for (const facet of ['genre', 'label', 'decade', 'country'] as FacetKey[]) {
-      const counts = new Map<string, number>();
-      for (const track of playlist) {
-        const value = facetValue(track, facet);
-        if (value) counts.set(value, (counts.get(value) || 0) + 1);
-      }
-      options[facet] = [...counts.entries()]
-        .map(([value, count]) => ({ value, count }))
-        .sort((a, b) => b.count - a.count || a.value.localeCompare(b.value))
-        .slice(0, FACET_CHIP_CAP);
-    }
-    return options;
-  }, [playlist]);
+  // Facets worth a chip: two or more values in the queue, or already applied.
+  const availableFacets = useMemo(
+    () => FACET_KEYS.filter(
+      (facet) => facetSelections[facet].length > 0
+        || facetOptions(playlist, [], EMPTY_FACETS, facet).length >= 2
+    ),
+    [playlist, facetSelections],
+  );
 
-  const activeFacetCount = Object.values(facetSelections).reduce((n, sel) => n + sel.length, 0);
+  const activeFacetCount = countSelected(facetSelections);
+  const searchTerms = useMemo(() => parseSearchTerms(searchQuery), [searchQuery]);
 
-  const toggleFacetValue = (facet: FacetKey, value: string) => {
-    setFacetSelections(prev => ({
-      ...prev,
-      [facet]: prev[facet].includes(value)
-        ? prev[facet].filter(v => v !== value)
-        : [...prev[facet], value],
-    }));
-  };
-
-  // Search now spans title, artist, album, label and year — searching "1988"
-  // or a label name used to come back empty, which read as a broken search.
-  // Multi-word queries match on every term, in any field and any order.
-  const displayedPlaylist = useMemo(() => {
-    const terms = searchQuery.trim().toLowerCase().split(/\s+/).filter(Boolean);
-
-    const matchesSearch = (t: Track) => {
-      if (terms.length === 0) return true;
-      const haystack = `${t.title} ${t.artist} ${t.album || ''} ${t.label || ''} ${t.year || ''}`.toLowerCase();
-      return terms.every((term) => haystack.includes(term));
-    };
-
-    const matchesFacets = (track: Track) =>
-      (Object.entries(facetSelections) as [FacetKey, string[]][]).every(([facet, selected]) => {
-        if (selected.length === 0) return true;
-        const value = facetValue(track, facet);
-        return value !== undefined && selected.includes(value);
-      });
-
-    return playlist.filter(
-      (t) => matchesSearch(t) && (activeFacetCount === 0 || matchesFacets(t))
-    );
-  }, [playlist, searchQuery, facetSelections, activeFacetCount]);
+  // Search spans title, artist, album, label and year; multi-word queries
+  // match on every term. Facets are OR within one, AND across (src/lib/facets).
+  const displayedPlaylist = useMemo(
+    () => filterTracks(playlist, searchTerms, facetSelections),
+    [playlist, searchTerms, facetSelections],
+  );
 
   const sortedPlaylist = useMemo(() => {
     if (sortBy === 'none') return displayedPlaylist;
     return [...displayedPlaylist].sort((a, b) => {
-      let va = '', vb = '';
-      if (sortBy === 'artist') { va = a.artist; vb = b.artist; }
-      else if (sortBy === 'title') { va = a.title; vb = b.title; }
-      else if (sortBy === 'genre') { va = a.genre || ''; vb = b.genre || ''; }
-      return va.localeCompare(vb);
+      const va = sortValue(a, sortBy);
+      const vb = sortValue(b, sortBy);
+      if (typeof va === 'number' && typeof vb === 'number') return va - vb;
+      return String(va).localeCompare(String(vb));
     });
   }, [displayedPlaylist, sortBy]);
 
@@ -204,9 +192,7 @@ export function MobilePlaylistSheet({
   // Phase A4 — total runtime of the visible queue (DJs think in minutes, not
   // track counts). Formats as h:mm for hour+ crates, m:ss below that.
   const totalSeconds = sortedPlaylist.reduce((sum, t) => sum + (t.duration || 0), 0);
-  const totalRuntime = totalSeconds >= 3600
-    ? `${Math.floor(totalSeconds / 3600)}h ${String(Math.floor((totalSeconds % 3600) / 60)).padStart(2, '0')}m`
-    : `${Math.floor(totalSeconds / 60)}:${String(Math.floor(totalSeconds % 60)).padStart(2, '0')}`;
+  const totalRuntime = formatRuntime(totalSeconds);
 
   // Virtualized list. A 1800-track queue rendered ~1800 rows and fired ~1800
   // cover-image requests on open; only the visible window is mounted now.
@@ -266,14 +252,75 @@ export function MobilePlaylistSheet({
   }, []);
 
   const activePlaylist = userPlaylists.find((p) => p.id === activePlaylistId) || null;
+  const openPlaylist = userPlaylists.find((p) => p.id === openPlaylistId) || null;
+
+  // Playlists resolve against the whole library, not the queue — while one is
+  // playing the queue IS that playlist, and every other playlist would look
+  // empty.
+  const library = libraryTracks ?? playlist;
+  const libraryById = useMemo(() => new Map(library.map((t) => [t.id, t])), [library]);
+  const resolveIds = useCallback(
+    (ids: string[]) => ids.map((id) => libraryById.get(id)).filter((t): t is Track => !!t),
+    [libraryById],
+  );
+  const openTracks = useMemo(
+    () => (openPlaylist ? resolveIds(openPlaylist.trackIds) : []),
+    [openPlaylist, resolveIds],
+  );
+
+  // The notice bar: Undo after a removal, a move or a delete; "Open" after a
+  // save. It lives inside the sheet on purpose — a toast outside a modal
+  // sheet cannot be tapped, and tapping it would dismiss the sheet.
+  const showNotice = useCallback((message: string, actionLabel?: string, run?: () => void) => {
+    setNotice({ key: Date.now(), message, actionLabel, run });
+  }, []);
+  const showUndo = useCallback(
+    (message: string, undo: () => void) => showNotice(message, 'Undo', undo),
+    [showNotice],
+  );
+  useEffect(() => {
+    if (!notice) return;
+    const id = window.setTimeout(() => setNotice(null), UNDO_MS);
+    return () => window.clearTimeout(id);
+  }, [notice]);
+
+  const openEditor = useCallback((id: string) => {
+    setTab('playlists');
+    setOpenPlaylistId(id);
+  }, []);
 
   const handleCreatePlaylist = (trackIds?: string[]) => {
     if (!onCreatePlaylist) return;
     const name = newPlaylistName.trim();
     if (!name) return;
-    onCreatePlaylist(name, trackIds);
+    const created = onCreatePlaylist(name, trackIds);
     setNewPlaylistName('');
+    setSaveOpen(false);
+    if (created && trackIds && trackIds.length > 0) {
+      showNotice(
+        `Saved “${created.name}” · ${trackIds.length} ${trackIds.length === 1 ? 'track' : 'tracks'}`,
+        'Open',
+        () => openEditor(created.id),
+      );
+    } else if (created && !trackIds) {
+      // Made from the Playlists tab: go straight in to add tracks.
+      setOpenPlaylistId(created.id);
+    }
   };
+
+  const handleDeletePlaylist = (target: UserPlaylist) => {
+    if (!onDeletePlaylist) return;
+    const index = userPlaylists.findIndex((p) => p.id === target.id);
+    onDeletePlaylist(target.id);
+    setOpenPlaylistId(null);
+    if (onRestorePlaylist) {
+      showUndo(`Deleted “${target.name}”`, () => onRestorePlaylist(target, Math.max(0, index)));
+    }
+  };
+
+  const pickerOpen = tab === 'queue' && pickerTarget !== null;
+  const hasQuery = searchTerms.length > 0 || activeFacetCount > 0;
+  const canSave = !!onCreatePlaylist && hasQuery && sortedPlaylist.length > 0;
 
   return (
     <Sheet open={isOpen} onOpenChange={onClose}>
@@ -284,7 +331,12 @@ export function MobilePlaylistSheet({
       >
         <SheetHeader className="px-4 pt-4 pb-2 border-b border-border shrink-0">
           <SheetTitle className="flex items-center gap-2 text-base">
-            {activePlaylist ? (
+            {tab === 'playlists' ? (
+              <>
+                <ListMusic className="w-4 h-4 text-primary" />
+                Playlists
+              </>
+            ) : activePlaylist ? (
               <>
                 <ListMusic className="w-4 h-4 text-primary" />
                 <span className="truncate">{activePlaylist.name}</span>
@@ -329,8 +381,8 @@ export function MobilePlaylistSheet({
             {(['queue', 'playlists'] as const).map((t) => (
               <button
                 key={t}
-                onClick={() => setTab(t)}
-                className={`flex-1 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center justify-center gap-1.5 ${
+                onClick={() => { setTab(t); setPickerTarget(null); }}
+                className={`flex-1 h-9 rounded-md text-xs font-medium transition-colors flex items-center justify-center gap-1.5 ${
                   tab === t
                     ? 'bg-primary/15 text-primary'
                     : 'bg-muted/50 text-muted-foreground hover:text-foreground'
@@ -343,24 +395,52 @@ export function MobilePlaylistSheet({
           </div>
         </SheetHeader>
 
-        {tab === 'queue' ? (
+        {pickerOpen ? (
+          /* ─────────── Facet / sort picker — takes over the panel body ─────────── */
+          <FacetPicker
+            target={pickerTarget!}
+            tracks={playlist}
+            searchTerms={searchTerms}
+            selections={facetSelections}
+            sortBy={sortBy}
+            onApply={(facet: FacetKey, values: string[]) => {
+              setFacetSelections((prev) => ({ ...prev, [facet]: values }));
+              setPickerTarget(null);
+            }}
+            onSort={(key) => { setSortBy(key); setPickerTarget(null); }}
+            onCancel={() => setPickerTarget(null)}
+          />
+        ) : tab === 'queue' ? (
           <>
-            {/* Playing-from banner — the way back out of a user playlist. */}
-            {activePlaylist && onExitPlaylist && (
-              <button
-                onClick={onExitPlaylist}
-                className="flex items-center gap-2 px-4 py-2 text-[11px] text-muted-foreground hover:text-foreground border-b border-border/60 shrink-0 transition-colors"
-              >
-                <ArrowLeft className="w-3 h-3" />
-                Playing from <span className="text-primary">{activePlaylist.name}</span> — back to library
-              </button>
+            {/* Playing-from banner — the way back out of a user playlist, and
+                the way into its editor. */}
+            {activePlaylist && (
+              <div className="flex items-center gap-1 pl-4 pr-2 border-b border-border/60 shrink-0 text-xs text-muted-foreground">
+                <span className="flex-1 min-w-0 truncate">
+                  Playing <span className="text-primary">{activePlaylist.name}</span>
+                </span>
+                <button
+                  onClick={() => openEditor(activePlaylist.id)}
+                  className="shrink-0 h-10 px-2 flex items-center gap-1 hover:text-foreground transition-colors"
+                >
+                  <Pencil className="w-3 h-3" /> Edit
+                </button>
+                {onExitPlaylist && (
+                  <button
+                    onClick={onExitPlaylist}
+                    className="shrink-0 h-10 px-2 flex items-center gap-1 hover:text-foreground transition-colors"
+                  >
+                    <ArrowLeft className="w-3 h-3" /> Library
+                  </button>
+                )}
+              </div>
             )}
 
-            {/* Search + sort chips — at the top of the playlist so they're never
-                obscured by activity messages docked at the bottom of the screen. */}
-            <div className="px-4 py-2 border-b border-border/60 shrink-0">
-              <div className="flex items-center gap-2 bg-muted/50 rounded-lg px-3 py-1.5">
-                <Search className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+            {/* Search, then ONE rail of chips. The rail scrolls sideways and
+                never wraps; applied filters sit on one more row beneath it. */}
+            <div className="px-4 py-2 border-b border-border/60 shrink-0 space-y-2">
+              <div className="flex items-center gap-2 bg-muted/50 rounded-lg px-3 h-10">
+                <Search className="w-4 h-4 text-muted-foreground shrink-0" />
                 <input
                   type="text"
                   inputMode="search"
@@ -373,48 +453,34 @@ export function MobilePlaylistSheet({
                   <button
                     onClick={clearSearch}
                     aria-label="Clear search"
-                    className="shrink-0 text-muted-foreground hover:text-foreground transition-colors"
+                    className="shrink-0 w-8 h-8 -mr-2 flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors"
                   >
-                    <X className="w-3.5 h-3.5" />
+                    <X className="w-4 h-4" />
                   </button>
                 )}
               </div>
-              <div className="flex gap-1.5 mt-2 flex-wrap">
-                {(['artist', 'title', 'genre'] as const).map((key) => (
-                  <button
-                    key={key}
-                    onClick={() => setSortBy(prev => prev === key ? 'none' : key)}
-                    className={`px-2 py-0.5 rounded-full text-[10px] border transition-colors capitalize ${
-                      sortBy === key
-                        ? 'bg-primary/15 text-primary border-primary'
-                        : 'bg-muted text-muted-foreground border-transparent'
-                    }`}
-                  >
-                    {key.charAt(0).toUpperCase() + key.slice(1)}
-                  </button>
-                ))}
-                {/* Phase B2 — crate-digging filter toggle */}
-                <button
-                  onClick={() => setShowFilters(prev => !prev)}
-                  className={`px-2 py-0.5 rounded-full text-[10px] border transition-colors flex items-center gap-1 ${
-                    showFilters || activeFacetCount > 0
-                      ? 'bg-primary/15 text-primary border-primary'
-                      : 'bg-muted text-muted-foreground border-transparent'
-                  }`}
-                >
-                  <Filter className="w-2.5 h-2.5" />
-                  Filter{activeFacetCount > 0 ? ` (${activeFacetCount})` : ''}
-                </button>
-                {showSourceFilter && (
+
+              <FacetRail
+                selections={facetSelections}
+                availableFacets={availableFacets}
+                sortBy={sortBy}
+                onOpen={setPickerTarget}
+                onRemoveValue={(facet, value) =>
+                  setFacetSelections((prev) => ({ ...prev, [facet]: prev[facet].filter((v) => v !== value) }))
+                }
+                onClearAll={() => setFacetSelections(EMPTY_FACETS)}
+                railEnd={showSourceFilter ? (
                   <>
-                    <div className="w-px bg-border mx-0.5 self-stretch" />
+                    <div className="w-px bg-border mx-0.5 self-stretch shrink-0" />
                     {(['collection', 'wantlist'] as const).map((src) => {
                       const active = activeSources!.includes(src);
                       return (
                         <button
                           key={src}
+                          type="button"
                           onClick={() => onToggleSource?.(src)}
-                          className={`px-2 py-0.5 rounded-full text-[10px] border transition-colors flex items-center gap-1 ${
+                          aria-pressed={active}
+                          className={`shrink-0 inline-flex items-center gap-1 h-8 px-3 rounded-full text-xs border transition-colors ${
                             active
                               ? 'bg-primary/15 text-primary border-primary'
                               : 'bg-muted text-muted-foreground/50 border-transparent line-through'
@@ -425,72 +491,45 @@ export function MobilePlaylistSheet({
                       );
                     })}
                   </>
-                )}
-              </div>
-
-              {/* Phase B2 — facet chip rows (genre / label / decade / country).
-                  OR within a row, AND across rows; display-only filtering. */}
-              {showFilters && (
-                <div className="mt-2 space-y-1.5">
-                  {(['genre', 'label', 'decade', 'country'] as FacetKey[]).map((facet) => {
-                    const options = facetOptions[facet];
-                    if (options.length < 2 && facetSelections[facet].length === 0) return null;
-                    return (
-                      <div key={facet} className="flex items-start gap-1.5">
-                        <span className="text-[9px] uppercase tracking-wide text-muted-foreground/70 w-12 shrink-0 pt-1">
-                          {facet}
-                        </span>
-                        <div className="flex gap-1 flex-wrap min-w-0">
-                          {options.map(({ value, count }) => {
-                            const active = facetSelections[facet].includes(value);
-                            return (
-                              <button
-                                key={value}
-                                onClick={() => toggleFacetValue(facet, value)}
-                                className={`px-1.5 py-0.5 rounded-full text-[9px] border transition-colors max-w-[140px] truncate ${
-                                  active
-                                    ? 'bg-primary/15 text-primary border-primary'
-                                    : 'bg-muted text-muted-foreground border-transparent'
-                                }`}
-                                title={`${value} (${count})`}
-                              >
-                                {value} <span className="opacity-60">{count}</span>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    );
-                  })}
-                  {activeFacetCount > 0 && (
-                    <button
-                      onClick={() => setFacetSelections(EMPTY_FACETS)}
-                      className="flex items-center gap-1 text-[9px] text-muted-foreground hover:text-foreground transition-colors ml-[54px]"
-                    >
-                      <X className="w-2.5 h-2.5" /> Clear filters
-                    </button>
-                  )}
-                </div>
-              )}
+                ) : undefined}
+                appliedEnd={canSave && !saveOpen ? (
+                  <button
+                    type="button"
+                    onClick={() => setSaveOpen(true)}
+                    className="shrink-0 inline-flex items-center gap-1 h-8 px-3 rounded-full text-xs border border-dashed border-border text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    <Plus className="w-3 h-3" /> Save {sortedPlaylist.length} as playlist
+                  </button>
+                ) : undefined}
+              />
 
               {/* Save the current view as a playlist — turns a dug-out filter
-                  result into something permanent in one tap. */}
-              {onCreatePlaylist && (searchQuery || activeFacetCount > 0) && sortedPlaylist.length > 0 && (
-                <div className="flex items-center gap-1.5 mt-2">
+                  result into something permanent. Only appears when asked for. */}
+              {canSave && saveOpen && (
+                <div className="flex items-center gap-1.5">
                   <input
                     type="text"
+                    autoFocus
                     value={newPlaylistName}
                     onChange={(e) => setNewPlaylistName(e.target.value)}
                     onKeyDown={(e) => { if (e.key === 'Enter') handleCreatePlaylist(sortedPlaylist.map(t => t.id)); }}
-                    placeholder={`Save these ${sortedPlaylist.length} as…`}
-                    className="flex-1 min-w-0 bg-muted/50 rounded px-2 py-1 text-[11px] outline-none placeholder:text-muted-foreground/70"
+                    placeholder={`Name these ${sortedPlaylist.length} tracks…`}
+                    aria-label="New playlist name"
+                    className="flex-1 min-w-0 h-9 bg-muted/50 rounded-lg px-3 text-sm outline-none placeholder:text-muted-foreground/70"
                   />
                   <button
                     onClick={() => handleCreatePlaylist(sortedPlaylist.map(t => t.id))}
                     disabled={!newPlaylistName.trim()}
-                    className="shrink-0 px-2 py-1 rounded text-[10px] bg-primary/15 text-primary disabled:opacity-40 transition-opacity"
+                    className="shrink-0 h-9 px-3 rounded-lg text-xs font-medium bg-primary text-primary-foreground disabled:opacity-40 transition-opacity"
                   >
                     Save
+                  </button>
+                  <button
+                    onClick={() => { setSaveOpen(false); setNewPlaylistName(''); }}
+                    aria-label="Cancel saving"
+                    className="shrink-0 w-9 h-9 flex items-center justify-center text-muted-foreground hover:text-foreground"
+                  >
+                    <X className="w-4 h-4" />
                   </button>
                 </div>
               )}
@@ -619,26 +658,20 @@ export function MobilePlaylistSheet({
                             {getSourceIcon(track.source)}
                           </div>
 
-                          {/* Add to playlist / remove from the open playlist */}
-                          {activePlaylist && onRemoveTrackFromPlaylist ? (
-                            <button
-                              onClick={() => onRemoveTrackFromPlaylist(activePlaylist.id, track.id)}
-                              aria-label="Remove from playlist"
-                              className="shrink-0 p-1.5 -mr-0.5 text-muted-foreground/60 hover:text-destructive transition-colors"
-                            >
-                              <X className="w-3.5 h-3.5" />
-                            </button>
-                          ) : onAddTrackToPlaylist ? (
+                          {/* Add to a playlist. Editing the playing playlist
+                              happens in its editor, not here. */}
+                          {onAddTrackToPlaylist && (
                             <button
                               onClick={() => setAddingTrackId(addingTrackId === track.id ? null : track.id)}
-                              aria-label="Add to playlist"
-                              className={`shrink-0 p-1.5 -mr-0.5 transition-colors ${
+                              aria-label={`Add ${track.title} to a playlist`}
+                              aria-expanded={addingTrackId === track.id}
+                              className={`shrink-0 w-9 h-9 -mr-1 flex items-center justify-center transition-colors ${
                                 addingTrackId === track.id ? 'text-primary' : 'text-muted-foreground/60 hover:text-foreground'
                               }`}
                             >
-                              <Plus className="w-3.5 h-3.5" />
+                              <Plus className="w-4 h-4" />
                             </button>
-                          ) : null}
+                          )}
                         </div>
 
                         {/* Inline playlist picker for this row */}
@@ -659,7 +692,7 @@ export function MobilePlaylistSheet({
                                     onAddTrackToPlaylist(p.id, track.id);
                                     setAddingTrackId(null);
                                   }}
-                                  className="w-full flex items-center justify-between gap-2 px-2 py-1.5 rounded text-[11px] hover:bg-muted/60 disabled:opacity-50 transition-colors"
+                                  className="w-full flex items-center justify-between gap-2 px-2 min-h-[36px] rounded text-xs hover:bg-muted/60 disabled:opacity-50 transition-colors"
                                 >
                                   <span className="truncate">{p.name}</span>
                                   {already
@@ -682,7 +715,7 @@ export function MobilePlaylistSheet({
                                     }
                                   }}
                                   placeholder="New playlist…"
-                                  className="flex-1 min-w-0 bg-muted/50 rounded px-2 py-1 text-[11px] outline-none"
+                                  className="flex-1 min-w-0 h-9 bg-muted/50 rounded px-2 text-xs outline-none"
                                 />
                                 <button
                                   onClick={() => {
@@ -692,7 +725,7 @@ export function MobilePlaylistSheet({
                                     setAddingTrackId(null);
                                   }}
                                   disabled={!newPlaylistName.trim()}
-                                  className="shrink-0 px-2 py-1 rounded text-[10px] bg-primary/15 text-primary disabled:opacity-40"
+                                  className="shrink-0 h-9 px-3 rounded text-xs bg-primary/15 text-primary disabled:opacity-40"
                                 >
                                   Add
                                 </button>
@@ -712,9 +745,34 @@ export function MobilePlaylistSheet({
               )}
             </div>
           </>
+        ) : openPlaylist ? (
+          /* ─────────── One playlist: listen / edit ─────────── */
+          <PlaylistEditor
+            key={openPlaylist.id}
+            playlist={openPlaylist}
+            tracks={openTracks}
+            library={library}
+            isActive={openPlaylist.id === activePlaylistId}
+            currentTrackId={playlist[currentIndex]?.id ?? null}
+            isTight={isTight}
+            onBack={() => setOpenPlaylistId(null)}
+            onPlay={(start) => { onPlayPlaylist?.(openPlaylist.id, start); onClose(); }}
+            onRename={(name) => onRenamePlaylist?.(openPlaylist.id, name)}
+            onMove={(trackId, beforeId) => onMoveTrackInPlaylist?.(openPlaylist.id, trackId, beforeId)}
+            onSetTracks={(ids) => onSetPlaylistTracks?.(openPlaylist.id, ids)}
+            onAdd={(trackId) => {
+              // An Undo still on screen holds the track list from before this
+              // add; running it afterwards would silently drop the new track.
+              setNotice(null);
+              onAddTrackToPlaylist?.(openPlaylist.id, trackId);
+            }}
+            onRemove={(trackId) => onRemoveTrackFromPlaylist?.(openPlaylist.id, trackId)}
+            onDelete={() => handleDeletePlaylist(openPlaylist)}
+            showUndo={showUndo}
+          />
         ) : (
-          /* ─────────── Playlists tab ─────────── */
-          <div className="flex-1 overflow-y-auto overscroll-contain" style={{ WebkitOverflowScrolling: 'touch' }}>
+          /* ─────────── Playlists tab: the list ─────────── */
+          <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain" style={{ WebkitOverflowScrolling: 'touch' }}>
             <div className="p-4 space-y-3">
               {onCreatePlaylist && (
                 <div className="flex items-center gap-1.5">
@@ -724,14 +782,15 @@ export function MobilePlaylistSheet({
                     onChange={(e) => setNewPlaylistName(e.target.value)}
                     onKeyDown={(e) => { if (e.key === 'Enter') handleCreatePlaylist(); }}
                     placeholder="New playlist name…"
-                    className="flex-1 min-w-0 bg-muted/50 rounded-lg px-3 py-2 text-sm outline-none placeholder:text-muted-foreground"
+                    aria-label="New playlist name"
+                    className="flex-1 min-w-0 h-11 bg-muted/50 rounded-lg px-3 text-sm outline-none placeholder:text-muted-foreground"
                   />
                   <button
                     onClick={() => handleCreatePlaylist()}
                     disabled={!newPlaylistName.trim()}
-                    className="shrink-0 px-3 py-2 rounded-lg text-xs bg-primary/15 text-primary disabled:opacity-40 transition-opacity flex items-center gap-1"
+                    className="shrink-0 h-11 px-3 rounded-lg text-xs font-medium bg-primary/15 text-primary disabled:opacity-40 transition-opacity flex items-center gap-1"
                   >
-                    <Plus className="w-3 h-3" /> Create
+                    <Plus className="w-3.5 h-3.5" /> Create
                   </button>
                 </div>
               )}
@@ -741,54 +800,80 @@ export function MobilePlaylistSheet({
                   <ListMusic className="w-6 h-6 text-muted-foreground/40" />
                   <p className="text-xs text-muted-foreground">No playlists yet</p>
                   <p className="text-[11px] text-muted-foreground/70 max-w-[220px] leading-snug">
-                    Name one above, then add tracks with the + on any row — or filter the queue and save the results in one tap.
+                    Name one above, then add tracks from your library — or filter the queue and save the results in one tap.
                   </p>
                 </div>
               ) : (
                 <div className="space-y-1.5">
                   {userPlaylists.map((p) => {
                     const isActive = p.id === activePlaylistId;
+                    const resolved = resolveIds(p.trackIds);
+                    const seconds = resolved.reduce((sum, t) => sum + (t.duration || 0), 0);
                     return (
                       <div
                         key={p.id}
-                        className={`flex items-center gap-2 rounded-lg border px-3 py-2 transition-colors ${
+                        className={`flex items-center rounded-lg border transition-colors ${
                           isActive ? 'border-primary bg-primary/10' : 'border-border bg-muted/30'
                         }`}
                       >
                         <button
-                          onClick={() => { onPlayPlaylist?.(p.id); setTab('queue'); }}
-                          disabled={p.trackIds.length === 0}
-                          className="flex items-center gap-2.5 flex-1 min-w-0 text-left disabled:opacity-50"
+                          onClick={() => { onPlayPlaylist?.(p.id); onClose(); }}
+                          disabled={resolved.length === 0}
+                          aria-label={`Play ${p.name} in order`}
+                          className="shrink-0 w-11 h-12 flex items-center justify-center disabled:opacity-40"
                         >
-                          <Play className={`w-3.5 h-3.5 shrink-0 ${isActive ? 'text-primary' : 'text-muted-foreground'}`} />
-                          <div className="min-w-0">
+                          <Play className={`w-4 h-4 ${isActive ? 'text-primary' : 'text-muted-foreground'}`} />
+                        </button>
+                        <button
+                          onClick={() => setOpenPlaylistId(p.id)}
+                          className="flex items-center gap-2 flex-1 min-w-0 h-12 pr-2 text-left"
+                        >
+                          <div className="flex-1 min-w-0">
                             <p className={`text-sm truncate leading-tight ${isActive ? 'text-primary font-medium' : 'text-foreground'}`}>
                               {p.name}
                             </p>
-                            <p className="text-[10px] text-muted-foreground leading-tight">
-                              {p.trackIds.length} {p.trackIds.length === 1 ? 'track' : 'tracks'}
+                            <p className="text-[10px] text-muted-foreground leading-tight pt-0.5">
+                              {resolved.length} {resolved.length === 1 ? 'track' : 'tracks'}
+                              {seconds > 0 && ` · ${formatRuntime(seconds)}`}
                             </p>
                           </div>
+                          <ChevronRight className="w-4 h-4 text-muted-foreground/60 shrink-0" />
                         </button>
-                        {onDeletePlaylist && (
-                          <button
-                            onClick={() => {
-                              if (confirm(`Delete playlist "${p.name}"? The tracks stay in your library.`)) {
-                                onDeletePlaylist(p.id);
-                              }
-                            }}
-                            aria-label={`Delete ${p.name}`}
-                            className="shrink-0 p-1.5 text-muted-foreground/60 hover:text-destructive transition-colors"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        )}
                       </div>
                     );
                   })}
                 </div>
               )}
             </div>
+          </div>
+        )}
+
+        {/* Notice bar — Undo / Open. Overlays the bottom of the list rather
+            than pushing the layout, so nothing shifts under the thumb. */}
+        {notice && (
+          <div
+            key={notice.key}
+            role="status"
+            aria-live="polite"
+            className="absolute left-3 right-3 z-20 flex items-center gap-2 rounded-lg bg-foreground text-background pl-3 pr-1 shadow-lg animate-in fade-in slide-in-from-bottom-2"
+            style={{ bottom: 'calc(4.75rem + env(safe-area-inset-bottom))' }}
+          >
+            <span className="flex-1 min-w-0 truncate text-xs py-3">{notice.message}</span>
+            {notice.actionLabel && notice.run && (
+              <button
+                onClick={() => { notice.run?.(); setNotice(null); }}
+                className="shrink-0 h-10 px-3 text-xs font-semibold underline underline-offset-2"
+              >
+                {notice.actionLabel}
+              </button>
+            )}
+            <button
+              onClick={() => setNotice(null)}
+              aria-label="Dismiss"
+              className="shrink-0 w-9 h-10 flex items-center justify-center opacity-70"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
           </div>
         )}
       </SheetContent>

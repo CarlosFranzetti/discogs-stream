@@ -27,6 +27,20 @@ export interface UserPlaylist {
   updatedAt: string;
 }
 
+/**
+ * Moves one item to a new index, returning a new array. Out-of-range targets
+ * clamp to the ends, so "move to position 999" lands at the bottom.
+ */
+export function moveItem<T>(items: T[], from: number, to: number): T[] {
+  if (from < 0 || from >= items.length) return items;
+  const target = Math.max(0, Math.min(items.length - 1, to));
+  if (target === from) return items;
+  const next = [...items];
+  const [item] = next.splice(from, 1);
+  next.splice(target, 0, item);
+  return next;
+}
+
 function readStored(): UserPlaylist[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -121,6 +135,64 @@ export function useUserPlaylists() {
   }, []);
 
   /**
+   * Reorders one track. Indices are positions in `trackIds` — callers that
+   * show a resolved (library-filtered) list should use moveTrackById instead,
+   * because unresolved ids make the two index spaces differ.
+   */
+  const moveTrack = useCallback((playlistId: string, from: number, to: number) => {
+    setPlaylists((prev) =>
+      prev.map((p) => {
+        if (p.id !== playlistId) return p;
+        const trackIds = moveItem(p.trackIds, from, to);
+        return trackIds === p.trackIds ? p : { ...p, trackIds, updatedAt: new Date().toISOString() };
+      })
+    );
+  }, []);
+
+  /**
+   * Moves `trackId` so it sits where `beforeTrackId` is now (or to the end
+   * when `beforeTrackId` is null). Id-based, so it is safe against ids that
+   * do not currently resolve to a library track.
+   */
+  const moveTrackById = useCallback(
+    (playlistId: string, trackId: string, beforeTrackId: string | null) => {
+      setPlaylists((prev) =>
+        prev.map((p) => {
+          if (p.id !== playlistId || trackId === beforeTrackId) return p;
+          if (!p.trackIds.includes(trackId)) return p;
+          const without = p.trackIds.filter((id) => id !== trackId);
+          const at = beforeTrackId === null ? -1 : without.indexOf(beforeTrackId);
+          const trackIds =
+            at === -1 ? [...without, trackId] : [...without.slice(0, at), trackId, ...without.slice(at)];
+          if (trackIds.every((id, i) => id === p.trackIds[i])) return p;
+          return { ...p, trackIds, updatedAt: new Date().toISOString() };
+        })
+      );
+    },
+    []
+  );
+
+  /** Replaces the whole track list — what Undo uses to put a removal back in place. */
+  const setPlaylistTracks = useCallback((playlistId: string, trackIds: string[]) => {
+    setPlaylists((prev) =>
+      prev.map((p) =>
+        p.id === playlistId
+          ? { ...p, trackIds: [...new Set(trackIds)], updatedAt: new Date().toISOString() }
+          : p
+      )
+    );
+  }, []);
+
+  /** Puts a deleted playlist back at its old position (Undo for delete). */
+  const restorePlaylist = useCallback((playlist: UserPlaylist, index = 0) => {
+    setPlaylists((prev) => {
+      if (prev.some((p) => p.id === playlist.id)) return prev;
+      const at = Math.max(0, Math.min(prev.length, index));
+      return [...prev.slice(0, at), playlist, ...prev.slice(at)];
+    });
+  }, []);
+
+  /**
    * Resolves a playlist to real Track objects, in the playlist's own order.
    * Ids with no matching track are skipped (removed from the library, not
    * yet loaded) rather than rendered as blanks.
@@ -138,6 +210,10 @@ export function useUserPlaylists() {
     addTrackToPlaylist,
     addTracksToPlaylist,
     removeTrackFromPlaylist,
+    moveTrack,
+    moveTrackById,
+    setPlaylistTracks,
+    restorePlaylist,
     resolvePlaylist,
   };
 }
