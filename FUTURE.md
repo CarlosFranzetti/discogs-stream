@@ -14,6 +14,7 @@ Mobile UX audit backlog. A read-only audit found these; none is fixed yet.
 - [x] M1 (fixed 2026-11-21) Title screen is `h-screen overflow-hidden` with no scroll child; rows fall below the fold on small phones. `src/components/MobileTitleScreen.tsx`
 - [ ] M2 No `overscroll-behavior` on html/body: page bounce and pull-to-refresh can reload the page and kill playback. `src/index.css`
 - [ ] M3 Tap targets well under 40px: transport row (20-28px), header menu button (28px, no aria-label), dialog close (16px), settings pills and buttons, title-screen clear-CSV X (12px). `MobileTransportControls.tsx`, `MobilePlayer.tsx`, `ui/dialog.tsx`, `SettingsDialog.tsx`, `MobileTitleScreen.tsx`
+  - Note 2026-11-21: the playlist panel's own tap targets were enlarged (36-44px) in the second pass, so that part is addressed. The transport row, header menu button, dialog close and settings controls are not.
 - [ ] M4 Rewind/fast-forward broken on touch: double-fires (touchstart plus mousedown), hold does not scan (stale closure), and it is dead in direct-audio mode (goes through the iframe-only seek). `MobileTransportControls.tsx`, `MobilePlayer.tsx`
 - [ ] M5 Timeline touch seeking lacks `touch-action: none` and a `touchcancel` handler (listener can stick). `src/components/MobileTimeline.tsx`
 - [ ] M6 "Start Listening" unmounts and rebuilds the preloaded YouTube player (different root element types in the two branches). `src/components/MobilePlayer.tsx`
@@ -30,41 +31,33 @@ Mobile UX audit backlog. A read-only audit found these; none is fixed yet.
 - [ ] theme-color `#000` versus background `#111318`. `index.html`
 - [ ] Toasts have no safe-area offset. `src/components/ui/sonner.tsx`, `src/components/ui/toaster.tsx`
 
-## Next — decisions waiting on Carlos
+## Next — decisions made, work remaining
 
 Title screen: done 2026-11-21 — the main block Carlos approved (connect card, Start Listening, demo crate) is unchanged; sign-in and the install hint moved to a quiet footer, and the screen now scrolls on short phones (audit item M1).
 
 **Proposed order of work**
 1. Ship what is finished: merge `claude/check-out-jkrunj`, then check in production whether direct audio engages (Decks depends on the answer).
 2. The HIGH and MEDIUM items under "Now".
-3. Playlist panel second pass: the chosen filter design and editor design, with rename, reorder, undo and play-in-order.
-4. Decks v1.
-5. Decks v2.
-6. Sync and install: playlists in Supabase (C1), a real web app manifest (M7), and B5.
+3. Decks v1.
+4. Decks v2.
+5. Sync and install: playlists in Supabase (C1), a real web app manifest (M7), and B5.
 
-### Playlist filter redesign
-The filters are too busy on iPhone; the Label row is far too long. Research input: show the top 4-6 values per facet, hide the rest behind "show more" or a search-within-filter, and show applied filters as removable chips. Current implementation: `src/components/MobilePlaylistSheet.tsx` (top 12 values per facet, genre / label / decade / country).
+Done 2026-11-21 (playlist-panel second pass, not yet merged): the filter redesign and the playlist editor redesign below. Step 1 of the old order, "playlist panel second pass", is finished; what remains before Decks is merge, verify direct audio, and the mobile audit backlog.
 
-Three options were mocked up for Carlos (2026-11-21); full research in [docs/research/filters.md](docs/research/filters.md). **Awaiting his pick.**
+### Playlist filter redesign — decided and built (2026-11-21)
+Carlos chose option A, "one rail, one picker". Built in the playlist-panel second pass; full research in [docs/research/filters.md](docs/research/filters.md).
 
-- **A — one rail, one picker (recommended).** A single horizontally scrolling row of facet chips (Sort, Genre, Label, Decade, Country). Tapping a facet replaces the panel body with that facet's picker: a search field, values with counts ordered by count with selected values pinned, values that would return zero tracks under the other filters hidden, and an apply button that states the result count. Applied filters show as removable chips under the rail. The panel never grows by more than one row.
-- **B — accordion.** Four collapsed rows showing each facet and its current value; one opens at a time, capped at six values plus search for Label. Live results, but the open facet pushes the track list off an iPhone screen.
-- **C — one Filters screen.** A single button opens a full-height screen with every facet in sections and a sticky apply button. Cleanest queue, but Label is three taps deep and the tracks are hidden while choosing.
+- One horizontally scrolling, never-wrapping row of chips: Sort, each facet with two or more values in the queue, then the Collection / Wantlist source toggles. Applied filters sit in a second single row as removable chips, with "Clear all" and a "Save N as playlist" chip.
+- Tapping a facet replaces the panel body with a picker (no second sheet): draft selection, a search field for facets with more than 8 values, counts that ignore values returning nothing, and an apply button that states the result count. No cap on values; the picker scrolls and searches.
+- Logic lives in `src/lib/facets.ts`; UI in `src/components/playlist/FacetRail.tsx` and `FacetPicker.tsx`.
+- Not yet tried on a real iPhone (see `memorystate.md`).
 
-Rules that apply whichever is chosen: never wrap chips past two rows (Material guidance — scroll instead); do not stack a second sheet on the slide-in panel (NN/g) — replace the panel body; keep applied filters visible and individually removable (Baymard).
+### Playlist editor redesign — decided and built (2026-11-21)
+Carlos chose option A, "explicit Edit mode", plus two things from option C: the running set length and "Move to position…". Built in the playlist-panel second pass; full research in [docs/research/playlist-editors.md](docs/research/playlist-editors.md).
 
-### Playlist editor redesign
-The editor needs improving on iOS. Research input (Spotify and Apple Music patterns): explicit edit mode; remove control on one side and drag handle on the other; a non-drag alternative (move up/down); the wording "Remove from playlist"; undo after removal; keep playback stable while editing; model entries with stable ids and positions. Current implementation: per-row `+` picker and `×` remove in `MobilePlaylistSheet.tsx`, storage in `src/hooks/useUserPlaylists.ts`.
-
-Three options were mocked up for Carlos (2026-11-21); full research in [docs/research/playlist-editors.md](docs/research/playlist-editors.md). **Awaiting his pick.**
-
-- **A — explicit Edit mode (recommended).** Listen by default. `Edit` turns the name into a field and shows a red remove control on the left of each row and a drag handle on the right, plus "Add tracks from library". `Done` leaves. Removal shows a "Removed from playlist · Undo" toast. Matches Apple Music / YouTube Music / SoundCloud conventions; adds the undo none of them offers.
-- **B — always editable.** No mode: swipe left to remove, long-press to drag, an add-from-library field at the top. Fastest for heavy editing, but swipe and long-press are fragile in a web app (they compete with scrolling and with the edge swipe that closes the panel) and nothing advertises them.
-- **C — DJ crate.** Dense numbered rows with label and year, a running set-length total per row, a sort switch (Custom / A–Z / Year) and "Move to position…". No covers. BPM and key columns would need data the Track model does not have.
-
-Recommendation: A, borrowing C's running set length and "Move to position…".
-
-Needed under any option (none exist yet): `renamePlaylist` is in the hook but has no UI; reorder (`moveTrack`); undo; and **play in the playlist's own order** — today `usePlayer` either shuffles or applies `sortSequential` (artist → album → year), so a hand-ordered playlist is never played in its order. Fix: a `preserveOrder` option on `usePlayer` used while a user playlist is active.
+- Tapping a playlist opens `src/components/playlist/PlaylistEditor.tsx`. Listen mode by default, with the running set length per row, "Play in order" and "Shuffle". `Edit` adds rename, a red remove control, a row-number chip for "Move to position…", a drag handle (handle-only drag, arrow keys as the non-drag alternative), "Add tracks from library" and delete. Removing, moving and deleting show an in-panel Undo notice for 6 seconds.
+- Play in the playlist's own order: `usePlayer` takes an `orderedContextKey` option, so a hand-ordered playlist is not re-sorted by `sortSequential`.
+- BPM and key columns (option C) were not built; see the ideas list.
 
 ### Verify direct audio in production
 The reworked `invidious-audio` (races the vetted Invidious list then Piped within about 8s, prefers m4a) and `yt-dlp-audio` (501 `yt_dlp_unavailable` on Supabase) are in `c980540`; the client probe timeout is 9s. Not verified in production because the dev sandbox has no egress. After merge and the CI deploy: play a few tracks, confirm the `<audio>` engine takes over from the iframe, and confirm the pitch fader becomes active. If it never engages, the instance lists are the first suspect (they have rotted twice, see HISTORY 2026-07-18 and 2026-07-20).
@@ -121,11 +114,11 @@ Status as of 2026-11-21. "Done" items cite the commit or date; details are in `d
 
 **Phase B — Collector surfaces**
 - [x] B1 Wantlist price badges (`useWantlistPrices`, `4eed9e2`)
-- [x] B2 Crate-digging filters (genre / label / decade / country; no style facet because styles fold into `genre` at ingest). Done 2026-07-17, merged in PR #20 (`71463b9`). Redesign pending, see "Next".
+- [x] B2 Crate-digging filters (genre / label / decade / country; no style facet because styles fold into `genre` at ingest). Done 2026-07-17, merged in PR #20 (`71463b9`). Redesign done 2026-11-21 (the rail and picker, `src/lib/facets.ts`), not yet merged; see "Next".
 - [ ] B3 Cue preview mode (long-press a row for a low-volume preview stream; needs the direct engine)
 - [ ] B4 Wire the `'similar'` source end to end (extension similar-releases to playable tracks)
 - [ ] B5 Wantlist thumbs-down release-check flow. Specified 2026-07-20, deliberately not built (per Carlos). Thumbs-down on a wantlist track prompts "This will remove this track — check all tracks from this release?". On yes, queue that release's remaining tracks sequentially; if every track of the release ends up thumbs-down, remove the release from the wantlist (Discogs API delete for OAuth users, local removal for CSV). Needs release-level grouping of preferences, a confirm dialog, a sequential release playback mode, and a wantlist-remove call in `discogs-api`.
-- [x] B6 (new) User playlists: `useUserPlaylists`, localStorage, ids not copies, Queue / Playlists tabs (`0e24a87`). Editor redesign pending, see "Next".
+- [x] B6 (new) User playlists: `useUserPlaylists`, localStorage, ids not copies, Queue / Playlists tabs (`0e24a87`). Editor done 2026-11-21 (rename, reorder, move to position, undo, play in order), not yet merged; see "Next".
 - [x] B7 (new) Demo crate: 25 electro and techno records, `?demo` deep link, session-only (`c980540`)
 
 **Phase C — Unification and structure**
@@ -141,7 +134,7 @@ Status as of 2026-11-21. "Done" items cite the commit or date; details are in `d
 - [x] D4 CI gate (npm ci, test, lint, typecheck, build): `.github/workflows/ci.yml` (`4eed9e2`)
 
 **Phase E — Hardening and quality**
-- [ ] E1 Scheduler tests (fake-timer specs for `useBackgroundVerifier`, `usePlayer` invariants). Only two test files exist: `useYouTubeSearch.test.ts`, `csvParser.test.ts`.
+- [ ] E1 Scheduler tests (fake-timer specs for `useBackgroundVerifier`, `usePlayer` invariants). `usePlayer.test.ts` was added 2026-11-21 (the render-time anchoring and ordered-context behaviour); `useBackgroundVerifier` still has no test.
 - [ ] E2 Cover-art write path through an edge function, then lock `release_cover_art` RLS (it is still world-writable by anon)
 - [ ] E3 Dedicated `SESSION_SECRET` env (remove the service-role fallback)
 - [ ] E4 Tighten the CSP once C4 is decided
@@ -155,6 +148,11 @@ Enormous collections (look-in of 2026-07-18; the caps were removed, these are th
 - **Progressive hydration**: `track-cache` `get` returns everything, but the client waits for the full payload before first render. Stream page by page (first 1000 gives an instant player, the rest in the background).
 - **Server-side pre-resolution**: for huge sets the client verifier (about 1 track per second) takes hours. Raise the weekly rescan's per-pass row budget or add an on-demand "resolve my pending tracks" server pass.
 - **Dirty-row upserts**: the 500ms-debounced upsert rewrites all rows each burst (20 chunked requests per save at 10k tracks). Track dirty ids and upsert only changed rows.
+
+Playlist follow-ups (2026-11-21):
+- **Sync playlists to Supabase**: a `user_playlists` table. The localStorage shape (id / name / trackIds / timestamps) already matches, so this is a transport change (see C1).
+- **Bulk select in the editor**: select several rows to remove or move at once.
+- **BPM and key columns** (the DJ-crate option): need data the Track model does not have.
 
 Other:
 - Cue preview via a second concurrent stream (see B3), the record-store listening booth behaviour.

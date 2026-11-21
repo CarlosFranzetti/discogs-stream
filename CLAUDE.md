@@ -64,6 +64,8 @@ npm run preview
 - `isShuffle` (default: `true`): when OFF, playlist is sorted by artist → album → year → track position (`sortSequential`); when ON, playlist is shuffled
 - The initial playlist is shuffled, so playback starts on a different random track every app load
 - Toggling shuffle OFF restores the sorted sequential order; toggling ON randomizes from the current state
+- Ordered context: third argument `options.orderedContextKey` (the active user playlist id, or null). While non-null, "shuffle off" means the given order instead of `sortSequential`; entering a playlist starts at its first track with shuffle off; leaving restores the listener's shuffle setting and keeps the playing track. `playFromContext({ shuffle?, startTrackId? })` restarts the current context and `requestContextStart(key, start)` queues how the next context switch starts (`MobilePlayer.handlePlayPlaylist` uses both)
+- Keeping the current track: when the playlist array changes, the current index is re-anchored to the same track id during render (React's "adjust state when a value changes" pattern, keyed on the previous playlist array), not in an effect. An effect-based version never worked because an earlier effect overwrote the remembered id in the same commit. Consequences: toggling shuffle, newly resolved tracks, dislikes, and playlist reorder/remove all keep playback on the right track (if the current track is removed, the next one slides in)
 - Skipping (next/prev/release-jump/select) always autoplays; MobilePlayer enforces it with a ~3s retry loop that survives engine remounts (direct-audio → iframe)
 - Appends new verified tracks (with resolved media) to existing playlist without disrupting playback
 - Uses interval-based time updates for progress tracking
@@ -106,7 +108,9 @@ npm run preview
 
 **Playlist Search & Crate-Digging Filters** (`MobilePlaylistSheet`):
 - Search bar at the top of the playlist panel filters by title or artist in real time
-- Filter toggle (funnel chip) expands facet chip rows: genre / label / decade / country, built from the loaded playlist (top 12 values per facet by frequency, with counts). OR within a facet, AND across facets; header shows "X of Y tracks" + filtered runtime. There is no separate style facet — Discogs styles fold into `genre` at ingest
+- Filters are "one rail, one picker". `FacetRail` is a single horizontally scrolling, never-wrapping row of chips: Sort, then each facet (genre / label / decade / country) that has two or more values in the queue or a selection, then the Collection / Wantlist toggles. Applied filters show as removable chips in a second row, with "Clear all" and a "Save N as playlist" chip. There is no separate style facet — Discogs styles fold into `genre` at ingest
+- Tapping a facet chip opens `FacetPicker`, which replaces the panel body (no second sheet): draft selection, search field when a facet has more than 8 values, no cap on values (at most 50 listed without a search), and an apply button stating the result count. Counts are disjunctive (computed over tracks matching the search and every OTHER facet), so values that would return nothing are not offered; row order is fixed while the picker is open. Sort is a chip that opens the same picker (Queue order, Artist, Title, Genre, Year, Label). OR within a facet, AND across facets; header shows "X of Y tracks" + filtered runtime
+- All matching logic is in the pure module `src/lib/facets.ts` (`filterTracks`, `facetOptions`, `matchesSearch`, `matchesFacets`, `formatRuntime`, ...); the panel, the facet picker and the add-tracks picker all use it
 - All filtering (search + facets) is display-only; the real playlist indices are preserved for correct `onSelectTrack` calls
 
 **Virtualized Playlist** (`MobilePlaylistSheet`):
@@ -117,7 +121,12 @@ npm run preview
 **User Playlists** (`useUserPlaylists`):
 - localStorage-backed (`discogs_stream_user_playlists_v1`), stores track ids, not copies, so playlists never go stale against library metadata; ids that no longer resolve are skipped at read time, not pruned
 - The shape (id / name / trackIds / timestamps) matches a future `user_playlists` table
-- Playing a playlist narrows `filteredTracks` in `MobilePlayer` instead of calling `setPlaylist`: `usePlayer` re-merges its input tracks on every library update and would clobber a hand-set list. Deleting the active playlist falls back to the full library
+- Playing a playlist narrows `filteredTracks` in `MobilePlayer` instead of calling `setPlaylist`: `usePlayer` re-merges its input tracks on every library update and would clobber a hand-set list. Deleting the active playlist falls back to the full library. While a playlist is active it is played in its own order (`orderedContextKey`, see Player State)
+- Playlists resolve against the whole library (`libraryTracks` prop = `verifiedTracks`), not the queue, because while a playlist plays the queue is that playlist
+- Tapping a playlist in the Playlists tab opens `PlaylistEditor` (the row's play button still plays immediately). Listen mode: tap to play from a track, running set length per row, "Play in order" / "Shuffle". Edit mode: rename field, remove control, row-number chip opening "Move to position…", handle-only drag reorder (`touch-action: none` on the handle only; auto-scroll near edges; arrow keys on the handle), "Add tracks from library" (`AddTracksPicker`), delete
+- Undo (6 s) for remove, move and delete is an in-panel notice bar, not a toast: a toast outside a modal Radix sheet cannot be tapped and would dismiss the sheet. Delete does not use `confirm()`
+- Hook API beyond create/rename/delete: `moveItem` (exported helper), `moveTrack`, `moveTrackById` (id-based, safe against unresolved ids), `setPlaylistTracks` (used by Undo), `restorePlaylist` (Undo for delete)
+- The Queue tab has no per-row remove; its "Playing <name>" banner has Edit (opens the editor) and Library (back to the full library)
 
 **Demo Crate** (`src/data/demoCrate.ts`):
 - 25 electro/techno records; offered on the title screen only while the library is empty
@@ -132,7 +141,12 @@ src/
 ├── components/          # React components
 │   ├── ui/             # shadcn-ui components (auto-generated)
 │   ├── MobilePlayer.tsx # The player (route /) — top-level orchestrator
-│   ├── MobilePlaylistSheet.tsx # Virtualized slide-in panel: Queue/Playlists tabs, search, facet filters, retry UX
+│   ├── MobilePlaylistSheet.tsx # Virtualized slide-in panel: Queue/Playlists tabs, search, facet rail, retry UX
+│   ├── playlist/       # Playlist panel pieces
+│   │   ├── FacetRail.tsx      # One-row chip rail + applied-filter chips
+│   │   ├── FacetPicker.tsx    # Per-facet / sort picker that replaces the panel body
+│   │   ├── PlaylistEditor.tsx # Listen/Edit view of one playlist (reorder, move, undo)
+│   │   └── AddTracksPicker.tsx # Virtualized, searchable add-from-library list
 │   ├── DirectAudioPlayer.tsx   # <audio> engine that takes over from the iframe
 │   ├── MobileTitleScreen.tsx   # Title/import screen (CSV upload, Start Listening)
 │   ├── SettingsDialog.tsx      # Settings panel (themes, CSV import/export, Discogs OAuth)
@@ -151,7 +165,7 @@ src/
 │   ├── useMediaSession.ts       # Lock-screen metadata/artwork + transport handlers
 │   ├── useWantlistPrices.ts     # Rate-limited (1 req/s) marketplace price lookups for wantlist rows
 │   ├── useUserPlaylists.ts      # localStorage playlists of track ids
-│   ├── usePlayer.ts             # Player state + shuffle/sequential logic
+│   ├── usePlayer.ts             # Player state + shuffle/sequential/ordered-context logic
 │   ├── useAudioController.ts    # Unified volume/mute across YT player + HTML5 audio
 │   ├── useBackgroundVerifier.ts # Background media resolution with priority queue
 │   ├── useTrackCache.ts         # Supabase discogs_track_cache CRUD
@@ -169,6 +183,7 @@ src/
 ├── lib/                # Utilities
 │   ├── discogs.ts      # Discogs data parsing
 │   ├── csvParser.ts    # Discogs CSV parsing
+│   ├── facets.ts       # Pure search/facet/sort/runtime logic for the playlist panel
 │   ├── youtube.ts      # YouTube URL extraction
 │   └── utils.ts        # cn() helper
 ├── types/              # TypeScript types
@@ -245,7 +260,7 @@ Supabase edge functions require:
 
 ## Testing
 
-Tests use Vitest + jsdom (`globals: true`, setup in `src/test/setup.ts`). Test files: `src/hooks/useYouTubeSearch.test.ts`, `src/lib/csvParser.test.ts`
+Tests use Vitest + jsdom (`globals: true`, setup in `src/test/setup.ts`). Test files: `src/hooks/useYouTubeSearch.test.ts`, `src/hooks/usePlayer.test.ts`, `src/hooks/useUserPlaylists.test.ts`, `src/lib/csvParser.test.ts`, `src/lib/facets.test.ts`
 
 Run specific test file:
 ```bash

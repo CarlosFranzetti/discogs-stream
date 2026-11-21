@@ -330,7 +330,9 @@ export function MobilePlaylistSheet({
         onOpenAutoFocus={e => e.preventDefault()}
       >
         <SheetHeader className="px-4 pt-4 pb-2 border-b border-border shrink-0">
-          <SheetTitle className="flex items-center gap-2 text-base">
+          {/* Panel title: the UI sans, small, heavy and in the theme colour —
+              not the serif display face the global h2 rule would apply. */}
+          <SheetTitle className="flex items-center gap-2 font-sans text-sm font-bold uppercase tracking-[0.14em] text-primary">
             {tab === 'playlists' ? (
               <>
                 <ListMusic className="w-4 h-4 text-primary" />

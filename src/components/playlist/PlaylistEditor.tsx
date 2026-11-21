@@ -436,10 +436,10 @@ export function PlaylistEditor({
             onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
             aria-label="Playlist name"
             maxLength={80}
-            className="w-full h-10 rounded-lg bg-muted/50 px-3 text-base font-semibold outline-none focus:ring-1 focus:ring-primary"
+            className="w-full h-10 rounded-lg bg-muted/50 px-3 text-base font-bold outline-none focus:ring-1 focus:ring-primary"
           />
         ) : (
-          <h3 className="text-base font-semibold truncate leading-tight">{playlist.name}</h3>
+          <h3 className="font-sans text-base font-bold truncate leading-tight">{playlist.name}</h3>
         )}
         <p className="text-xs text-muted-foreground pt-1">
           {tracks.length} {tracks.length === 1 ? 'track' : 'tracks'}
