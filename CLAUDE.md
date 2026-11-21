@@ -4,7 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Discogs Vinyl Collection Streamer - A web app that streams your Discogs vinyl collection using YouTube as the playback provider. Users can import their collection/wantlist via CSV (no login required) or connect a Discogs account via Settings. Tracks are resolved through a failsafe search chain (yt-dlp → Invidious → YouTube API) and metadata is persisted to a Supabase database for instant loads on return visits. (Bandcamp/direct-audio playback components were removed 2026-07-15 as dead code — their edge functions remain server-side, currently unconsumed by the UI.)
+Discogs Vinyl Collection Streamer - A web app that streams your Discogs vinyl collection using YouTube as the playback provider. Users can import their collection/wantlist via CSV (no login required), connect a Discogs account via Settings, or try a session-only electro/techno demo crate. Tracks are resolved through a failsafe search chain (yt-dlp → YouTube scrape → Invidious → Piped → YouTube API) and metadata is persisted to a Supabase database for instant loads on return visits. Playback uses two engines: the YouTube iframe plays immediately and a direct `<audio>` engine takes over when a stream resolves (direct audio is not verified in production; see `memorystate.md`). The Bandcamp embed component was removed as dead code; its edge functions and the `bandcampEmbedSrc` data field remain, with no UI.
+
+**Where project docs live**: `memorystate.md` = current state and deployment facts (read first); `FUTURE.md` = backlog, decisions, roadmap, ideas; `docs/HISTORY.md` = append-only engineering log; `PRD.md` = product requirements; `docs/CODEBASE-FUNCTIONS.md` = function reference.
 
 ## Development Commands
 
@@ -41,7 +43,7 @@ npm run preview
    - First: Check Supabase database for saved track-to-media mappings (`track-media` edge function)
    - Second: Extract YouTube video IDs from Discogs release `videos` field (quota-free)
    - Third: `youtube-search` edge function → yt-dlp → YouTube results-page scrape (quota-free, no third-party dependency; expected primary tier in production) → Invidious → Piped → Official YouTube API (strictly last — the only tier that burns quota)
-4. **Playback**: YouTube IFrame Player API (`YouTubePlayer.tsx`, youtube-nocookie iframe) — the only live playback path. The direct-audio extraction edge functions (`yt-dlp-audio`, `invidious-audio`) still exist server-side but have no frontend consumer since the dead desktop player was removed (2026-07-15); rewiring them into `MobilePlayer` is a candidate feature (see memorystate.md Suggestions)
+4. **Playback**: dual engine in `MobilePlayer`. The YouTube IFrame Player API (`YouTubePlayer.tsx`, youtube-nocookie iframe) plays immediately. In parallel `useDirectAudio` asks `invidious-audio` and `yt-dlp-audio` for a direct stream (9s client race; disabled for the session after 3 consecutive failures). If one resolves, `DirectAudioPlayer.tsx` (an `<audio>` element) takes over at the elapsed position; if the direct stream fails mid-track the iframe resumes at the elapsed position. The pitch fader (`usePitch`) only works on the direct engine because YouTube's `setPlaybackRate` snaps to its fixed rate set. `useMediaSession` provides lock-screen metadata and transport.
 
 ### Key Architectural Patterns
 
@@ -107,6 +109,22 @@ npm run preview
 - Filter toggle (funnel chip) expands facet chip rows: genre / label / decade / country, built from the loaded playlist (top 12 values per facet by frequency, with counts). OR within a facet, AND across facets; header shows "X of Y tracks" + filtered runtime. There is no separate style facet — Discogs styles fold into `genre` at ingest
 - All filtering (search + facets) is display-only; the real playlist indices are preserved for correct `onSelectTrack` calls
 
+**Virtualized Playlist** (`MobilePlaylistSheet`):
+- Rows are virtualized with `@tanstack/react-virtual` over a plain overflow container (not Radix ScrollArea), so only visible rows mount (1800 tracks mount about 22 rows)
+- The scroll element is held in state via a callback ref, not a `useRef`: the Sheet content mounts through a portal after the parent's layout effect, and a plain ref made the virtualizer see `null` and render zero rows
+- Search spans title/artist/album/label/year, multi-term (all terms must match), 150ms debounce
+
+**User Playlists** (`useUserPlaylists`):
+- localStorage-backed (`discogs_stream_user_playlists_v1`), stores track ids, not copies, so playlists never go stale against library metadata; ids that no longer resolve are skipped at read time, not pruned
+- The shape (id / name / trackIds / timestamps) matches a future `user_playlists` table
+- Playing a playlist narrows `filteredTracks` in `MobilePlayer` instead of calling `setPlaylist`: `usePlayer` re-merges its input tracks on every library update and would clobber a hand-set list. Deleting the active playlist falls back to the full library
+
+**Demo Crate** (`src/data/demoCrate.ts`):
+- 25 electro/techno records; offered on the title screen only while the library is empty
+- Ids start with `demo-` (`isDemoTrack`). Demo tracks are never written to `discogs_track_cache` or localStorage, and any real import or cloud load replaces them rather than merging
+- No hardcoded YouTube ids (the search chain resolves them); covers are generated SVG data URIs
+- `?demo` query param loads the crate directly (used by the `/links` page)
+
 ### Project Structure
 
 ```
@@ -114,7 +132,8 @@ src/
 ├── components/          # React components
 │   ├── ui/             # shadcn-ui components (auto-generated)
 │   ├── MobilePlayer.tsx # The player (route /) — top-level orchestrator
-│   ├── MobilePlaylistSheet.tsx # Slide-in playlist panel with search + retry UX
+│   ├── MobilePlaylistSheet.tsx # Virtualized slide-in panel: Queue/Playlists tabs, search, facet filters, retry UX
+│   ├── DirectAudioPlayer.tsx   # <audio> engine that takes over from the iframe
 │   ├── MobileTitleScreen.tsx   # Title/import screen (CSV upload, Start Listening)
 │   ├── SettingsDialog.tsx      # Settings panel (themes, CSV import/export, Discogs OAuth)
 │   └── YouTubePlayer.tsx # YouTube IFrame wrapper (only playback surface)
@@ -122,11 +141,16 @@ src/
 │   ├── Auth.tsx        # Discogs OAuth login
 │   ├── Library.tsx     # Desktop player view (/library)
 │   └── Index.tsx       # Landing page → MobilePlayer (/)
+│   # /links is NOT a React route: vercel.json rewrites it to public/links.html
 ├── hooks/              # Custom React hooks
 │   ├── useDiscogsAuth.ts        # OAuth flow management
 │   ├── useDiscogsData.ts        # Collection/wantlist fetching
 │   ├── useDiscogsSync.ts        # Diff-sync orchestration (auto-sync gating, progress)
 │   ├── useTrackMediaResolver.ts # Media source resolution
+│   ├── useDirectAudio.ts        # Asks invidious-audio + yt-dlp-audio for a direct stream URL
+│   ├── useMediaSession.ts       # Lock-screen metadata/artwork + transport handlers
+│   ├── useWantlistPrices.ts     # Rate-limited (1 req/s) marketplace price lookups for wantlist rows
+│   ├── useUserPlaylists.ts      # localStorage playlists of track ids
 │   ├── usePlayer.ts             # Player state + shuffle/sequential logic
 │   ├── useAudioController.ts    # Unified volume/mute across YT player + HTML5 audio
 │   ├── useBackgroundVerifier.ts # Background media resolution with priority queue
@@ -152,11 +176,14 @@ src/
 │   └── youtube.d.ts    # YouTube IFrame API types
 ├── data/               # Static/mock data
 │   ├── mockTracks.ts   # Development mock data + shuffleTracks()
+│   ├── demoCrate.ts    # Session-only electro/techno demo crate (isDemoTrack)
 │   └── discogsCache.ts # Discogs API caching utilities
 ├── test/
 │   └── setup.ts        # Vitest setup file
 └── integrations/
     └── supabase/       # Supabase client setup
+public/
+└── links.html          # Static link-in-bio page, served at /links via a vercel.json rewrite
 ```
 
 ### Supabase Edge Functions
@@ -167,8 +194,8 @@ Located in `supabase/functions/`:
 - `discogs-public`: Fetches release data from Discogs without authentication (used for CSV imports and cover art)
 - `youtube-search`: YouTube search with failsafe chain (yt-dlp → YouTube scrape → Invidious → Piped → YouTube API). yt-dlp is an instant no-op in Supabase's edge runtime (no subprocesses) but kept first for self-hosted deployments; the results-page scrape is the reliable quota-free tier
 - `track-media`: CRUD for saved track-to-media mappings (stores YouTube IDs or Bandcamp embeds per release/track)
-- `invidious-audio`: Extracts direct audio stream URLs from YouTube via Invidious API (quota-free, multiple instance failover)
-- `yt-dlp-audio`: Extracts audio URLs using yt-dlp (primary direct audio method)
+- `invidious-audio`: Extracts direct audio stream URLs; races the vetted Invidious instances, then Piped (`/streams/{id}`), within about 8s and prefers m4a (quota-free). `verify_jwt = true`
+- `yt-dlp-audio`: Extracts audio URLs using yt-dlp; returns 501 `yt_dlp_unavailable` immediately on Supabase (no subprocesses), works only if self-hosted. `verify_jwt = true`
 - `track-cache`: CRUD for `discogs_track_cache` table (persists track metadata across sessions). Writes/deletes on username-keyed rows require a valid HMAC session; `csv-*` capability keys pass as-is. `get` pages internally in 1000-row batches with no total cap (PostgREST's 1000-row response cap used to truncate collections >1000 tracks); client upserts are chunked at 500 rows/request
 - `youtube-rescan-weekly`: Weekly link-health rescan — walks `discogs_track_cache`, re-runs the `youtube-search` chain, updates youtube1/youtube2 and flips `working_status`; logs to `rescan_log`. Scheduled via pg_cron `0 4 * * 0` (after daily YouTube quota reset); paced at ~100 rows/min (600ms between calls). Manual trigger: POST `{ "limit": N }`
 - `_shared/session.ts`: Shared session helpers used across functions
@@ -202,7 +229,7 @@ Supabase edge functions require:
 
 **Caching Strategy**: `useTrackMediaResolver` caches at the release level (not track level) because Discogs release data and Supabase media mappings are stored per-release. This reduces API calls when playing multiple tracks from the same album. `useTrackCache` persists at the individual track level to the `discogs_track_cache` table.
 
-**Content Security Policy**: Strict CSP in `vercel.json` allows YouTube/Bandcamp embeds while blocking other iframes. Media sources are explicitly whitelisted. `.vercelignore` uses `/supabase` (with leading slash) to exclude only the root supabase edge functions directory — not `src/integrations/supabase/`.
+**Content Security Policy**: Strict CSP in `vercel.json` allows YouTube/Bandcamp embeds while blocking other iframes. Media sources are explicitly whitelisted; `font-src` allows `fonts.gstatic.com` (Space Grotesk/Playfair) and `media-src 'self' https:` allows direct audio streams — without these, production silently blocks fonts and direct streams. `.vercelignore` uses `/supabase` (with leading slash) to exclude only the root supabase edge functions directory — not `src/integrations/supabase/`.
 
 **Keyboard Shortcuts** (`useKeyboardShortcuts`): Space = play/pause, ←/→ = prev/next track, ↑/↓ = next/prev release, +/− = volume, M = mute, P = playlist, S = shuffle, O = options. Listeners ignore keypresses when focus is on input/textarea elements.
 
@@ -232,7 +259,9 @@ Configured for Vercel deployment via `vercel.json`:
 - Aggressive caching for `/assets/*` (immutable)
 - Security headers (CSP, HSTS, X-Frame-Options, etc.)
 
-Deploy with Vercel CLI:
+Pushes to master auto-deploy the frontend to production. Edge functions deploy through `.github/workflows/deploy-edge-functions.yml`, always by name (verify_jwt rule and other deployment gotchas: `memorystate.md`, "Deployment facts that bite").
+
+Manual deploy with Vercel CLI:
 ```bash
 vercel --prod --yes
 ```

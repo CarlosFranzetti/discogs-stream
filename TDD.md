@@ -1,10 +1,13 @@
 # Technical Design Document — Discogs Stream
 
+> **Historical design (April 2026).** Sections on Zustand, the single `AudioCtrl` and the audio-only playback chain describe the original plan, not the build.
+> Current behaviour: `CLAUDE.md` (architecture), `PRD.md` (requirements), `docs/CODEBASE-FUNCTIONS.md` (functions), `memorystate.md` (state).
+
 **Version:** 2.0  
 **Date:** 2026-04-22  
 **Stack:** React 18 + Vite · TypeScript · Tailwind + shadcn/ui · Supabase (Postgres + Edge Functions) · Vercel
 
-> **As-built deviations (2026-07-15):** No Zustand — state is hook-local + Context. `AudioCtrl` exists as `useAudioController` (YT iframe only; the HTML5 `<audio>` direct-stream path has no frontend consumer since the dead-code sweep). Playback is exclusively the YouTube IFrame API. For the authoritative structural reference see `CLAUDE.md` and `docs/CODEBASE-FUNCTIONS.md`; for the running engineering log see `memorystate.md`.
+> **As-built deviations (2026-07-15):** No Zustand — state is hook-local + Context. `AudioCtrl` exists as `useAudioController`, which drives both the YouTube iframe and the HTML5 `<audio>` direct-stream engine (rewired into `MobilePlayer` on 2026-07-17; the iframe plays first and the direct engine takes over when a stream resolves). For the authoritative structural reference see `CLAUDE.md` and `docs/CODEBASE-FUNCTIONS.md`; for current state see `memorystate.md` and for the engineering log see `docs/HISTORY.md`.
 
 ---
 

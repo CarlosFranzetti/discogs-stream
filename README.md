@@ -14,11 +14,17 @@ Dig through your existing records, browse your wantlist, and discover what you a
 💾 **Smart Persistence** - Saves all resolved metadata to the cloud database, so your collection loads instantly next time
 🎨 **Themes** - Choose from multiple themes (Default Dark, Midnight, Neon Orange, Cyberpunk) to match your vibe
 🔀 **Smart Shuffle** - Toggle between shuffled and sequential (artist → album → track order) playback
-🔎 **Playlist Search** - Live-filter your queue by title or artist right in the playlist panel
+🔎 **Playlist Search & Filters** - Live search across title, artist, album, label and year, plus genre / label / decade / country chips and runtime totals; the queue is virtualized so large collections stay smooth
+📚 **User Playlists** - Build named playlists from your library (stored on your device, by track id)
+🎛️ **Demo Crate** - No collection yet? Try 25 electro and techno records, no login needed (`/?demo`)
+🔗 **Link Page** - `/links` is a link-in-bio landing page that points to the app and the demo crate
+💲 **Wantlist Price Badges** - Lowest marketplace price on wantlist rows
+🔊 **Dual Playback Engine** - The YouTube player starts instantly; a direct audio engine takes over when a stream resolves (lock-screen controls, ±8% pitch fader)
+🧩 **Chrome Extension** - Side panel with crates, carts, pitch and marketplace data (`npm run build:extension`)
 📱 **Mobile First** - Designed for on-the-go access with a smooth, app-like experience that fits any screen
 🎵 **YouTube Playback** - Privacy-friendly youtube-nocookie player with background verification
 ❤️ **Like/Dislike Tracks** - Curate your listening experience with track preferences
-🛡️ **Failsafe Search Chain** - yt-dlp → Invidious → YouTube API keeps resolving tracks even when quotas run out
+🛡️ **Failsafe Search Chain** - yt-dlp → YouTube scrape → Invidious → Piped → YouTube API (last), duration-aware, keeps resolving tracks even when quotas run out
 🔁 **Auto-Retry Unavailable Tracks** - Dimmed tracks retry in the background; tap once to queue the retry, tap again when resolved to play
 
 ---
@@ -91,6 +97,22 @@ src/
 - 🎵 **YouTube IFrame API** - Audio playback
 - 📀 **Discogs API** - Collection & release data
 - 🔧 **yt-dlp + Invidious** - Quota-free track resolution (server-side edge functions)
+
+---
+
+## 📚 Documentation
+
+| File | Purpose |
+|------|---------|
+| `PRD.md` | Product requirements (what the app does today) |
+| `CLAUDE.md` | Architecture and conventions for contributors and coding agents |
+| `memorystate.md` | Current state, deployment facts, open items, last three sessions |
+| `FUTURE.md` | Backlog, pending decisions, Decks mode spec, roadmap, ideas |
+| `docs/HISTORY.md` | Append-only engineering log |
+| `docs/CODEBASE-FUNCTIONS.md` | Function-level reference for `src/` |
+| `TDD.md` | Original technical design (partly historical) |
+| `LOOPY.md` | Loop playbook for recurring engineering passes |
+| `SECURITY.md` | Security policy |
 
 ---
 

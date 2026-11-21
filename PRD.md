@@ -1,129 +1,102 @@
-# Product Requirements Document — Discogs Stream
+# Product Requirements — Discogs Stream
 
-**Version:** 2.0  
-**Date:** 2026-04-22  
-**Status:** Active  
+**Version:** 3.0
+**Date:** 2026-11-21
 **Owner:** Carlos Franzetti
 
-> **Implementation status (2026-07-15):** CSV import, Discogs OAuth diff-sync, YouTube playback (iframe), background verification, weekly rescan, themes, and PWA shell are shipped. Bandcamp playback and direct-audio (`<audio>`) playback are NOT in the live UI (frontend removed as dead code; edge functions remain). Current engineering state lives in `memorystate.md`.
+Describes the product as it is built. Planned work is in `FUTURE.md`; engineering state is in `memorystate.md`.
 
 ---
 
-## 1. Problem Statement
+## 1. Problem
 
-Discogs is the definitive catalogue for vinyl collectors, but it offers zero playback. Every session forces users to leave the platform, manually search YouTube or Bandcamp, and lose context. Collectors — especially DJs — want to hear what they own or want in the same flow where they track it.
+Discogs is the definitive catalogue for vinyl collectors, but it offers no playback. To hear a record they own or want, users leave the site, search YouTube by hand, and lose their place. Collectors and DJs want to hear their collection in the same flow where they browse it.
 
----
+## 2. Product
 
-## 2. Product Vision
-
-A streaming layer that sits on top of a Discogs collection. Drop in a CSV or connect an account, and every record you own or want becomes instantly playable, with artwork, marketplace prices, and deep release metadata — without ever leaving the app.
-
----
+A streaming layer over a Discogs collection. Import a CSV or connect an account and every record in the collection or wantlist becomes playable, with artwork, wantlist price badges and release metadata. Visitors with no collection can try a built-in demo crate first.
 
 ## 3. Users
 
 | Persona | Need |
 |---|---|
-| **Vinyl DJ** | Preview upcoming purchases, build set ideas from owned records |
-| **Collector** | Browse + play any release in their archive, track condition vs sound |
-| **Wantlist digger** | Hear wantlist items before committing to a buy |
-| **Casual listener** | Shuffle through a curated collection like a personal radio |
+| **Vinyl DJ** | Preview upcoming purchases, build set ideas from owned records, think in runtime |
+| **Collector** | Browse and play any release in the archive |
+| **Wantlist digger** | Hear wantlist items before buying |
+| **Casual listener** | Shuffle a collection like a personal radio |
 
----
+## 4. What it does today
 
-## 4. Goals & Non-Goals
+### 4.1 Getting a collection in
+- **CSV import** of a Discogs collection or wantlist export. No login. Releases are expanded to per-track entries through the `discogs-public` edge function. Resolved tracks are written immediately to the `discogs_track_cache` table and mirrored in localStorage.
+- **Optional Discogs OAuth** from Settings only (never the title screen). Diff-sync: remote Discogs is the source of truth, releases removed on Discogs are soft-deleted (`working_status = 'non_working'`), likes and dislikes are never touched by sync. Tokens live server-side in `user_tokens`. Auto-sync runs only when the local cache is empty; otherwise "Re-sync now".
+- **Demo crate**: 25 electro and techno records, offered on the title screen while the library is empty and reachable through `?demo`. Session-only: never saved to the cloud cache or localStorage, and replaced by any real import.
+- Return visits load from the cloud cache first (resolved links and covers), then localStorage, then any sync, so playback can begin before network work finishes.
+
+### 4.2 Playback
+- **YouTube IFrame player** (youtube-nocookie) plays immediately. When a direct audio stream resolves for the track, an HTML5 `<audio>` engine takes over at the elapsed position; if the stream fails mid-track the iframe resumes at the elapsed position. Direct audio is not verified in production (`memorystate.md`).
+- **Link resolution**, in order: saved mapping in the database, YouTube ids in the Discogs release `videos` field, then the `youtube-search` chain: yt-dlp (no-op on Supabase), YouTube results-page scrape, Invidious, Piped, official YouTube API last (the only tier that uses quota). Matching is duration-aware: results far shorter than the expected track length are dropped and closeness to the expected duration adds to the score.
+- **Background verification** resolves tracks without blocking playback (current track, then the next three, then all pending, then `non_working` for retry). A track with no link is skipped after 3 seconds and retried later.
+- **Weekly rescan** (`youtube-rescan-weekly`, Sunday 04:00 UTC) re-runs the chain over cached rows and flips `working_status`.
+- Shuffle is on by default with a random start; off gives artist, album, year, track order. Skips always autoplay. Like and dislike per track. Lock-screen controls through the Media Session API. Keyboard shortcuts on desktop. A +/-8% pitch fader appears when the direct engine is live.
+
+### 4.3 Browsing
+- **Virtualized queue**: only visible rows are mounted (1800 tracks mount about 22 rows).
+- **Search** across title, artist, album, label and year; all terms must match; debounced.
+- **Crate-digging filters**: genre, label, decade and country chips (OR within a facet, AND across facets), with "X of Y tracks" and filtered runtime.
+- **Set-length totals** wherever track counts show.
+- **User playlists**: named, ordered lists of track ids (not copies), stored in localStorage; create, delete, play, add and remove tracks, "Save these N as…" from a search or filter result. Playing a playlist narrows the queue to it.
+- **Wantlist price badges**: lowest marketplace price on wantlist rows in the open sheet.
+- Dimmed tracks: pending tracks at reduced opacity, `non_working` tracks dimmer; one tap queues a silent retry, a second plays if resolved.
+
+### 4.4 Surfaces
+- Mobile-first single-page player at `/`, usable on desktop. Themes: Dark, Midnight, Neon Orange, Cyberpunk.
+- `/auth` for Discogs OAuth, `/library` as a secondary page, `/links` as a link-in-bio landing page (static `public/links.html`).
+- PWA shell (home-screen metadata). Installing the PWA standalone on Android does not work yet (`FUTURE.md`, M7).
+- **Chrome extension side panel** (built with `npm run build:extension`) that shares hooks with the app: crates, carts, playlists, pitch, marketplace data, similar releases.
+
+## 5. Goals and non-goals
 
 ### Goals
-- Time-to-first-play under 5 seconds on return visits.
-- Zero re-import friction: collection is always up to date.
-- Works offline for metadata; gracefully degrades for playback.
-- Mobile-first UI that also runs well on macOS desktop Safari.
+- Time to first play under 5 seconds on return visits.
+- No re-import friction: the collection is always current.
+- Metadata works offline; playback degrades gracefully.
+- Works well on a phone and on desktop Safari and Chrome.
+- Resolve links without depending on YouTube API quota.
 
-### Non-Goals
+### Non-goals
 - No ripping or downloading audio.
-- No social features in v1.
-- No Discogs listing/selling actions from inside the app.
-- No desktop Electron wrapper in v1.
+- No social features.
+- No listing or selling actions on Discogs from inside the app.
+- No desktop Electron wrapper.
+- No account system beyond the Discogs username; no Supabase Auth user is created for OAuth.
+- No Bandcamp playback (edge functions and a data field remain; no UI).
 
----
+## 6. Planned
 
-## 5. Feature Set
+See `FUTURE.md`: the mobile UX backlog, playlist filter and editor redesigns, direct-audio verification, desktop Decks mode (two turntables and a mixer), and the phased roadmap.
 
-### 5.1 Collection Import (CSV — shipped)
-- Upload Discogs export CSV for collection or wantlist.
-- Tracks expanded from release-level to individual per-track entries (1 req/sec to Discogs API).
-- Persisted to `discogs_track_cache` table; reloads instantly on return visits.
-- localStorage as offline fallback.
-
-### 5.2 Discogs Account Sync (P0 — next sprint)
-Users connect via OAuth1. App fetches full collection + wantlist via Discogs API. Incremental sync on every session open (diff-based: only add/remove, never full overwrite).
-
-**Requirements:**
-- OAuth flow triggered from Settings only (not title screen).
-- Token stored in Supabase `user_tokens` table, never in localStorage.
-- Rate limit: max 60 req/min per Discogs spec; back-off with exponential retry.
-- Sync conflict rule: remote Discogs is source of truth; local overrides (likes/dislikes) are never overwritten.
-
-### 5.3 Playback Engine (shipped, ongoing hardening)
-Multi-tier audio resolution: yt-dlp → Invidious → YouTube IFrame API. HTML5 `<audio>` preferred for background playback. 3-second auto-skip on failed tracks with background retry.
-
-### 5.4 Volume & Keyboard Controls (P0 — in progress)
-- Volume slider synced bidirectionally with actual audio element.
-- Keyboard shortcuts: `↑`/`↓` volume ±5%, `M` mute, `Space` play/pause, `,`/`.` skip.
-- Global `keydown` listeners with proper cleanup on unmount.
-- No desync between slider state and real volume on player swap.
-
-### 5.5 Persistent User State (P0)
-On any authenticated return visit: collection + wantlist hydrate from `discogs_track_cache` before any API call fires. Cover art loads from `release_cover_art` cache. Playback can start before sync completes.
-
-**Loading hierarchy:**
-1. Supabase DB cache → render immediately.
-2. localStorage snapshot → fill gaps.
-3. Discogs API diff-sync → patch in background.
-
-### 5.6 Now Playing Panel (P1 — design phase)
-Bottom slide-up sheet (mobile-first, also works on desktop) showing:
-- Full release info: artist, label, catalogue number, country, year, all genres/styles.
-- Marketplace data: lowest, median, highest price (Discogs marketplace API).
-- Actions: Add to wantlist, Add to collection, Open on Discogs, Purchase link.
-- Smooth spring animation; closes on swipe-down or tap outside.
-- Real-time sync with currently playing track (no stale data).
-
-### 5.7 Playlist / Wantlist Reset (P0 — bug fix)
-Current reset does not flush all state layers consistently. Fixed behavior:
-- Clear CSV data → clear localStorage → delete `discogs_track_cache` rows for `owner_key` → reset all React state → return to title screen.
-- Collection and wantlist clear independently or together.
-- DB + localStorage always stay in sync (no orphaned rows).
-
-### 5.8 Vinyl Rendering (shipped — bug fixed)
-Round vinyl always renders as a true circle. Fixed by using `width` + `aspect-ratio: 1/1` (single-expression layout) instead of separate `width`/`height` clamp expressions that Safari can evaluate inconsistently during resize.
-
----
-
-## 6. Success Metrics
+## 7. Success metrics
 
 | Metric | Target |
 |---|---|
 | Time to first play (return visit) | < 5 s |
-| Sessions with ≥ 3 tracks played | > 60 % |
-| Re-import rate (users who must re-import) | < 5 % |
+| Sessions with 3 or more tracks played | > 60 % |
+| Users who must re-import | < 5 % |
 | Track resolution success rate | > 85 % |
 | Discogs link click-through per session | > 15 % |
 
----
+These are targets; no measurement is recorded in the repo.
 
-## 7. Constraints
+## 8. Constraints
 
-- Discogs API: 60 req/min unauthenticated, 60 req/min per OAuth token.
-- YouTube quota: 10,000 units/day (search = 100 units); yt-dlp + Invidious chain runs regardless.
-- Supabase free tier: 500 MB DB, 2 GB bandwidth.
-- No server-side rendering; pure Vite SPA deployed on Vercel.
+- Discogs API: 60 requests per minute (unauthenticated, and per OAuth token). Track expansion is paced to stay under it.
+- YouTube API quota: 10,000 units a day, a search costs 100. The quota-free tiers run regardless.
+- Supabase free tier: 500 MB database, 2 GB bandwidth (as stated in the earlier PRD; unverified against the current plan).
+- No server-side rendering: a Vite SPA on Vercel.
 
----
+## 9. Open questions
 
-## 8. Open Questions
-
-1. Should wantlist items auto-import to collection after a "Purchase" action?
-2. Do we cache Discogs marketplace prices, and if so, for how long?
-3. Is BPM/key detection in scope for the DJ persona in v2?
+1. Should wantlist items auto-import to the collection after a purchase action?
+2. How long should marketplace prices be cached? (The `discogs-public` proxy caches for 24 hours today.)
+3. Is BPM or key detection in scope for the DJ persona?

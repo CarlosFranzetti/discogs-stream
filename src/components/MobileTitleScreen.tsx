@@ -125,7 +125,7 @@ export function MobileTitleScreen({
   };
 
   return (
-    <div className="h-screen flex flex-col bg-background overflow-hidden safe-area max-w-md mx-auto w-full px-6 animate-fade-in relative">
+    <div className="h-screen h-dvh flex flex-col bg-background overflow-y-auto overflow-x-hidden overscroll-contain safe-area max-w-md mx-auto w-full px-6 relative">
 
       {/* ── Full-screen background disc — fills viewport height ── */}
       <div
@@ -348,35 +348,30 @@ export function MobileTitleScreen({
             </span>
           </button>
         )}
-
-        {/* Permanent install hint — only shown when running in the browser; hidden
-            automatically once the app is launched from the Home Screen. */}
-        {showInstallHint && (
-          <p className="text-[11px] text-muted-foreground/70 text-center leading-snug px-2">
-            {isIOS
-              ? 'Tap Share → "Add to Home Screen" for the full-screen app.'
-              : 'Install via browser menu → "Install app" for the full-screen experience.'}
-          </p>
-        )}
-
-        {/* User auth */}
-        <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
-          <User className="w-4 h-4" />
-          {isUserLoggedIn ? (
-            <>
-              <span>Signed in as {userEmail?.split('@')[0]}</span>
-              <button onClick={onSignOut} className="text-primary hover:underline ml-2">Sign out</button>
-            </>
-          ) : (
-            <button onClick={onNavigateAuth} className="text-primary hover:underline">
-              Sign in to save likes
-            </button>
-          )}
-        </div>
       </div>
 
-      {/* Flexible spacer — absorbs remaining screen height, ensures space at bottom */}
-      <div className="flex-1 min-h-4" />
+      {/* Flexible spacer — pushes the footer to the bottom of the screen */}
+      <div className="flex-1 min-h-6" />
+
+      {/* Footer — the secondary things, kept out of the main block so the
+          screen reads as one decision: connect, load, or play the demo. */}
+      <footer className="relative z-10 pb-4 flex flex-col items-center gap-1.5 text-[11px] text-muted-foreground/60">
+        {isUserLoggedIn ? (
+          <p>
+            Signed in as {userEmail?.split('@')[0]}
+            <button onClick={onSignOut} className="ml-2 py-2 text-primary/80 hover:underline">Sign out</button>
+          </p>
+        ) : (
+          <button onClick={onNavigateAuth} className="py-2 px-3 -my-1 text-muted-foreground/80 hover:text-foreground transition-colors flex items-center gap-1.5">
+            <User className="w-3 h-3" /> Sign in to save likes
+          </button>
+        )}
+        {showInstallHint && (
+          <p className="text-center leading-snug text-muted-foreground/45">
+            {isIOS ? 'Share → "Add to Home Screen" installs the app' : 'Browser menu → "Install app" for full screen'}
+          </p>
+        )}
+      </footer>
     </div>
   );
 }
