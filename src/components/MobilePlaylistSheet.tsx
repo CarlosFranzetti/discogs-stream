@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Track } from '@/types/track';
@@ -213,10 +213,17 @@ export function MobilePlaylistSheet({
   // A plain overflow container is used rather than Radix ScrollArea so the
   // virtualizer owns a real scrolling element and mobile momentum scrolling
   // behaves natively.
-  const scrollRef = useRef<HTMLDivElement>(null);
+  //
+  // The scroll element is held in STATE, not a ref. Sheet content mounts
+  // through a portal in a later commit than this component's own layout
+  // effect, so with a plain ref the virtualizer saw `null`, rendered zero
+  // rows, and stayed blank until something unrelated re-rendered the parent
+  // (a busy library hid this; a quiet 25-track one showed an empty queue).
+  // A callback ref that sets state forces the re-render the moment it mounts.
+  const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null);
   const rowVirtualizer = useVirtualizer({
     count: sortedPlaylist.length,
-    getScrollElement: () => scrollRef.current,
+    getScrollElement: () => scrollEl,
     estimateSize: () => (isTight ? ROW_HEIGHT_TIGHT : ROW_HEIGHT_NORMAL),
     overscan: 8,
     getItemKey: (i) => sortedPlaylist[i]?.id ?? i,
@@ -225,15 +232,16 @@ export function MobilePlaylistSheet({
   // Opening the sheet should land on the track that's playing, not at the top
   // of a 1800-row list the user then has to hunt through.
   useEffect(() => {
-    if (!isOpen || tab !== 'queue') return;
+    if (!isOpen || tab !== 'queue' || !scrollEl) return;
     if (searchQuery || activeFacetCount > 0 || sortBy !== 'none') return;
     const pos = sortedPlaylist.findIndex((t) => indexById.get(t.id) === currentIndex);
     if (pos >= 0) {
       requestAnimationFrame(() => rowVirtualizer.scrollToIndex(pos, { align: 'center' }));
     }
-    // Only on open — re-running while the user scrolls would yank them back.
+    // Only when the list mounts — re-running while the user scrolls would
+    // yank them back.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, tab]);
+  }, [isOpen, tab, scrollEl]);
 
   const handleTrackClick = (track: Track) => {
     // Non-working tracks are display-only — not clickable
@@ -490,8 +498,8 @@ export function MobilePlaylistSheet({
 
             {/* Virtualized track list */}
             <div
-              ref={scrollRef}
-              className="flex-1 overflow-y-auto overscroll-contain"
+              ref={setScrollEl}
+              className="flex-1 min-h-0 overflow-y-auto overscroll-contain"
               style={{ WebkitOverflowScrolling: 'touch' }}
             >
               {sortedPlaylist.length === 0 ? (

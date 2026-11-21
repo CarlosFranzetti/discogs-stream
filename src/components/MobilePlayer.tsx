@@ -27,6 +27,7 @@ import { QuotaBanner } from './QuotaBanner';
 import { toast } from 'sonner';
 import { useSettings } from '@/hooks/useSettings';
 import { useUserPlaylists } from '@/hooks/useUserPlaylists';
+import { DEMO_TRACKS, isDemoTrack } from '@/data/demoCrate';
 import { SettingsDialog } from '@/components/SettingsDialog';
 import { useTrackMediaResolver } from '@/hooks/useTrackMediaResolver';
 import { useBackgroundVerifier } from '@/hooks/useBackgroundVerifier';
@@ -131,7 +132,8 @@ export function MobilePlayer() {
     if (csvAllTracks.length > 0) {
       setDiscogsTracks(prev => {
         const csvIds = new Set(csvAllTracks.map(t => t.id));
-        const filtered = prev.filter(t => !csvIds.has(t.id));
+        // A real import replaces the demo crate rather than mixing with it.
+        const filtered = prev.filter(t => !csvIds.has(t.id) && !isDemoTrack(t));
         return [...filtered, ...csvAllTracks];
       });
     }
@@ -366,7 +368,7 @@ export function MobilePlayer() {
       return !expandedReleases.has(`${r.source}-${r.release_id}`);
     });
     setDiscogsTracks((prev) => {
-      if (prev.length === 0) {
+      if (prev.every(isDemoTrack)) {
         return rows.map((row) => ({
           id: row.track_id,
           title: row.title,
@@ -412,7 +414,7 @@ export function MobilePlayer() {
       setCacheStatus(rows.length > 0 ? 'has-data' : 'empty');
       if (rows.length > 0) {
         setDiscogsTracks((prev) => {
-          if (prev.length === 0) {
+          if (prev.every(isDemoTrack)) {
             // Drop release-level placeholders for any release that already has
             // expanded per-track rows in the cache. Prevents the "one per release"
             // symptom on return visits.
@@ -464,12 +466,15 @@ export function MobilePlayer() {
 
   // Persist track updates to database in batches.
   useEffect(() => {
-    if (!ownerKey || discogsTracks.length === 0) return;
+    // Demo-crate tracks are session-only: never written to the cloud cache,
+    // or they would come back on the next visit posing as a real collection.
+    const persistable = discogsTracks.filter((t) => !isDemoTrack(t));
+    if (!ownerKey || persistable.length === 0) return;
     if (syncTimerRef.current) {
       window.clearTimeout(syncTimerRef.current);
     }
     syncTimerRef.current = window.setTimeout(() => {
-      upsertTracks(ownerKey, discogsTracks);
+      upsertTracks(ownerKey, persistable);
     }, 500);
     return () => {
       if (syncTimerRef.current) {
@@ -598,7 +603,7 @@ export function MobilePlayer() {
 
   // Phase A1 — probe for a direct audio stream whenever the video changes.
   // The iframe plays immediately (no silent gap); when the probe succeeds the
-  // <audio> engine takes over at the elapsed position. A 5s race bounds the
+  // <audio> engine takes over at the elapsed position. A 9s race bounds the
   // probe; after 3 consecutive failures the direct path is disabled for the
   // session (stop paying the probe cost on a cold/blocked backend).
   useEffect(() => {
@@ -615,7 +620,10 @@ export function MobilePlayer() {
       return;
     }
     let cancelled = false;
-    const timeout = new Promise<null>((resolve) => window.setTimeout(() => resolve(null), 5000));
+    // 9s, not 5s: invidious-audio's own budget is ~8s (Invidious race, then
+    // Piped race). A shorter client race cut Piped off before it could answer.
+    // The wait costs nothing audible — the iframe is already playing.
+    const timeout = new Promise<null>((resolve) => window.setTimeout(() => resolve(null), 9000));
     Promise.race([getDirectAudioUrl(currentVideoId), timeout]).then((result) => {
       if (cancelled) return;
       if (result?.audioUrl) {
@@ -672,7 +680,7 @@ export function MobilePlayer() {
     const cache = readDiscogsCache(username);
     if (!cache) return;
 
-    setDiscogsTracks((prev) => (prev.length === 0 ? cache.discogsTracks : prev));
+    setDiscogsTracks((prev) => (prev.every(isDemoTrack) ? cache.discogsTracks : prev));
     if (verifiedTracksRef.current.length === 0) {
       setVerifiedTracks(cache.playableTracks);
     }
@@ -703,7 +711,8 @@ export function MobilePlayer() {
 
   useEffect(() => {
     const username = credentials?.username;
-    if (!username || discogsTracks.length === 0) return;
+    // Same rule as the cloud cache: the demo crate never reaches localStorage.
+    if (!username || discogsTracks.length === 0 || discogsTracks.every(isDemoTrack)) return;
 
     const playable =
       verifiedTracks.length > 0
@@ -1034,8 +1043,9 @@ export function MobilePlayer() {
   const sourceLabel = useMemo(() => {
     const c = activeSources.includes('collection');
     const w = activeSources.includes('wantlist');
+    if (discogsTracks.length > 0 && discogsTracks.every(isDemoTrack)) return 'Demo crate · Electro & Techno';
     return c && w ? 'Collection & Wantlist' : c ? 'Collection' : 'Wantlist';
-  }, [activeSources]);
+  }, [activeSources, discogsTracks]);
 
   const handleStartListening = useCallback(() => {
     // If audio is already preloaded for a different track, sync to what's actually playing
@@ -1048,6 +1058,22 @@ export function MobilePlayer() {
     }
     setHasUserInteracted(true);
   }, [currentVideoId, playlist, currentIndex, setCurrentIndex, setCurrentTime]);
+
+  // Demo crate — a session-only library so the app can be tried with no login
+  // and no CSV. Only offered while the library is empty (see title screen).
+  const handleLoadDemo = useCallback(() => {
+    setDiscogsTracks(DEMO_TRACKS);
+    setHasUserInteracted(true);
+    toast.success(`Demo crate loaded — ${DEMO_TRACKS.length} electro & techno cuts`);
+  }, []);
+
+  // `?demo` deep link (used by the link-in-bio page): land straight in the
+  // crate. Safe for returning users — a real library replaces demo tracks as
+  // soon as it loads from localStorage or the cloud cache.
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).has('demo')) handleLoadDemo();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // CSV upload handlers with toast notifications and cover art scraping
   const handleCollectionCSVUpload = async (file: File) => {
@@ -1155,6 +1181,7 @@ export function MobilePlayer() {
           activeSources={activeSources}
           onToggleSource={handleToggleSource}
           onStartListening={handleStartListening}
+          onLoadDemo={handleLoadDemo}
           trackCount={verifiedTracks.length}
           isVerifying={isVerifying}
           verifyProgress={verifyProgress}

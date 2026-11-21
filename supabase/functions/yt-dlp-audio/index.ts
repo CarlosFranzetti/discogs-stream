@@ -5,6 +5,62 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
+function jsonResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  })
+}
+
+interface YtDlpOutput {
+  success: boolean;
+  stdout: string;
+  stderr: string;
+}
+
+/**
+ * Runs yt-dlp and collects its output. Returns null when the subprocess can't
+ * be run at all — Supabase's hosted edge runtime forbids subprocesses, and a
+ * self-hosted box may not have the binary. That is the expected case in
+ * production, so it must be cheap: no retries, no waiting.
+ */
+async function runYtDlp(args: string[], timeoutMs: number): Promise<YtDlpOutput | null> {
+  let timeoutId: number | undefined
+  try {
+    const command = new Deno.Command('yt-dlp', {
+      args,
+      stdout: 'piped',
+      stderr: 'piped',
+    })
+
+    const child = command.spawn()
+    timeoutId = setTimeout(() => {
+      try {
+        child.kill('SIGTERM')
+      } catch {
+        // noop
+      }
+    }, timeoutMs)
+
+    const { success, stdout, stderr } = await child.output()
+    return {
+      success,
+      stdout: new TextDecoder().decode(stdout),
+      stderr: new TextDecoder().decode(stderr),
+    }
+  } catch (error) {
+    console.warn('[yt-dlp] unavailable:', error instanceof Error ? error.message : String(error))
+    return null
+  } finally {
+    clearTimeout(timeoutId)
+  }
+}
+
+/** 501, not 500 — the client just moves on to the next audio source. */
+function unavailableResponse(): Response {
+  return jsonResponse({ success: false, error: 'yt_dlp_unavailable' }, 501)
+}
+
 serve(async (req) => {
   // Handle CORS preflight
   if (req.method === 'OPTIONS') {
@@ -24,42 +80,23 @@ serve(async (req) => {
       const limit = Math.min(Math.max(Number(maxResults) || 5, 1), 10)
       const searchExpr = `ytsearch${limit}:${String(query).trim()}`
 
-      const command = new Deno.Command('yt-dlp', {
-        args: [
-          '--dump-json',
-          '--flat-playlist',
-          '--playlist-end', String(limit),
-          '--socket-timeout', '5',
-          '--retries', '1',
-          searchExpr,
-        ],
-        stdout: 'piped',
-        stderr: 'piped',
-      })
+      const result = await runYtDlp([
+        '--dump-json',
+        '--flat-playlist',
+        '--playlist-end', String(limit),
+        '--socket-timeout', '5',
+        '--retries', '1',
+        searchExpr,
+      ], 9000)
 
-      const child = command.spawn()
-      const timeoutId = setTimeout(() => {
-        try {
-          child.kill('SIGTERM')
-        } catch {
-          // noop
-        }
-      }, 9000)
+      if (!result) return unavailableResponse()
 
-      const [status, stdout, stderr] = await Promise.all([
-        child.status,
-        child.output(),
-        child.stderrOutput(),
-      ])
-      clearTimeout(timeoutId)
-
-      if (!status.success) {
-        const errorText = new TextDecoder().decode(stderr)
-        console.error('[yt-dlp] Search error:', errorText)
-        throw new Error(`yt-dlp search failed: ${errorText}`)
+      if (!result.success) {
+        console.error('[yt-dlp] Search error:', result.stderr)
+        throw new Error(`yt-dlp search failed: ${result.stderr}`)
       }
 
-      const output = new TextDecoder().decode(stdout).trim()
+      const output = result.stdout.trim()
       const lines = output ? output.split('\n') : []
 
       const videos = lines
@@ -80,14 +117,11 @@ serve(async (req) => {
         })
         .filter(Boolean)
 
-      return new Response(
-        JSON.stringify({
-          success: true,
-          source: 'yt-dlp',
-          videos,
-        }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
+      return jsonResponse({
+        success: true,
+        source: 'yt-dlp',
+        videos,
+      })
     }
 
     console.log('[yt-dlp] Extracting audio for video:', videoId)
@@ -95,43 +129,23 @@ serve(async (req) => {
     const youtubeUrl = `https://www.youtube.com/watch?v=${videoId}`
 
     // Run yt-dlp to extract best audio format.
-    const command = new Deno.Command('yt-dlp', {
-      args: [
-        '--dump-single-json',
-        '--no-playlist',
-        '--format', 'bestaudio/best',
-        '--socket-timeout', '5',
-        '--retries', '1',
-        youtubeUrl
-      ],
-      stdout: 'piped',
-      stderr: 'piped',
-    })
+    const result = await runYtDlp([
+      '--dump-single-json',
+      '--no-playlist',
+      '--format', 'bestaudio/best',
+      '--socket-timeout', '5',
+      '--retries', '1',
+      youtubeUrl
+    ], 12000)
 
-    const process = command.spawn()
-    const timeoutId = setTimeout(() => {
-      try {
-        process.kill('SIGTERM')
-      } catch {
-        // noop
-      }
-    }, 12000)
+    if (!result) return unavailableResponse()
 
-    const [status, stdout, stderr] = await Promise.all([
-      process.status,
-      process.output(),
-      process.stderrOutput(),
-    ])
-    clearTimeout(timeoutId)
-
-    if (!status.success) {
-      const errorText = new TextDecoder().decode(stderr)
-      console.error('[yt-dlp] Error:', errorText)
-      throw new Error(`yt-dlp failed: ${errorText}`)
+    if (!result.success) {
+      console.error('[yt-dlp] Error:', result.stderr)
+      throw new Error(`yt-dlp failed: ${result.stderr}`)
     }
 
-    const output = new TextDecoder().decode(stdout)
-    const parsed = JSON.parse(output)
+    const parsed = JSON.parse(result.stdout)
     const title = parsed?.title || 'Unknown'
     const duration = parsed?.duration_string || String(parsed?.duration || 0)
     const audioUrl = parsed?.url || ''
@@ -142,28 +156,19 @@ serve(async (req) => {
 
     console.log('[yt-dlp] Successfully extracted audio URL')
 
-    return new Response(
-      JSON.stringify({
-        success: true,
-        source: 'yt-dlp',
-        audioUrl,
-        title,
-        duration,
-      }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    )
+    return jsonResponse({
+      success: true,
+      source: 'yt-dlp',
+      audioUrl,
+      title,
+      duration,
+    })
 
   } catch (error) {
     console.error('[yt-dlp] Error:', error)
-    return new Response(
-      JSON.stringify({
-        success: false,
-        error: error.message,
-      }),
-      {
-        status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      }
+    return jsonResponse(
+      { success: false, error: error instanceof Error ? error.message : String(error) },
+      500
     )
   }
 })

@@ -1,5 +1,5 @@
 import { Button } from '@/components/ui/button';
-import { Disc3, Heart, Play, User, LogOut, Radio, Loader2, Upload, FileText, X } from 'lucide-react';
+import { Disc3, Heart, Play, User, LogOut, Radio, Loader2, Upload, FileText, X, Zap } from 'lucide-react';
 import { SourceType } from './SourceFilters';
 import { useRef } from 'react';
 
@@ -49,6 +49,8 @@ interface MobileTitleScreenProps {
   activeSources: SourceType[];
   onToggleSource: (source: SourceType) => void;
   onStartListening: () => void;
+  /** Loads the session-only electro & techno demo crate. */
+  onLoadDemo?: () => void;
   trackCount?: number;
   isVerifying?: boolean;
   verifyProgress?: { verified: number; total: number };
@@ -77,6 +79,7 @@ export function MobileTitleScreen({
   activeSources,
   onToggleSource,
   onStartListening,
+  onLoadDemo,
   trackCount = 0,
   isVerifying = false,
   verifyProgress,
@@ -321,6 +324,30 @@ export function MobileTitleScreen({
             ? `Start Listening (${trackCount} tracks)`
             : 'Start Listening'}
         </Button>
+
+        {/* Demo crate — only while the library is empty, so it can never
+            replace or mix with a real collection. */}
+        {onLoadDemo && trackCount === 0 && !isVerifying && !isDiscogsAuthenticating && (
+          <button
+            onClick={onLoadDemo}
+            className="demo-crate-button group relative w-full overflow-hidden rounded-lg px-4 py-3 text-left"
+          >
+            <span className="relative z-10 flex items-center gap-3">
+              <span className="demo-eq" aria-hidden="true">
+                <i /><i /><i /><i /><i />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-semibold tracking-wide text-foreground">
+                  Play the demo crate
+                </span>
+                <span className="block text-[11px] text-muted-foreground leading-tight">
+                  25 electro &amp; techno classics · no login, no CSV
+                </span>
+              </span>
+              <Zap className="w-4 h-4 shrink-0 text-[#22d3ee] transition-transform group-hover:scale-110" />
+            </span>
+          </button>
+        )}
 
         {/* Permanent install hint — only shown when running in the browser; hidden
             automatically once the app is launched from the Home Screen. */}

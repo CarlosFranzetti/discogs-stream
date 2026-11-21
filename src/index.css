@@ -307,3 +307,57 @@
     box-shadow: 0 0 40px hsl(38 90% 55% / 0.4);
   }
 }
+
+/* ── Demo crate button (title screen) ─────────────────────────────────────
+   A cyan→magenta electro edge with a five-bar EQ that idles. Uses its own
+   fixed neon colours rather than theme tokens on purpose: it advertises the
+   electro/techno crate and should look the same under every theme. */
+.demo-crate-button {
+  background:
+    linear-gradient(hsl(var(--background)), hsl(var(--background))) padding-box,
+    linear-gradient(110deg, #22d3ee, #a78bfa 45%, #e879f9 70%, #a3e635) border-box;
+  border: 1px solid transparent;
+  transition: transform 0.15s ease, box-shadow 0.2s ease;
+}
+.demo-crate-button::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(110deg, rgba(34, 211, 238, 0.14), rgba(232, 121, 249, 0.1) 60%, rgba(163, 230, 53, 0.08));
+  pointer-events: none;
+}
+.demo-crate-button:hover,
+.demo-crate-button:focus-visible {
+  box-shadow: 0 0 22px -6px rgba(34, 211, 238, 0.7), 0 0 30px -10px rgba(232, 121, 249, 0.6);
+  outline: none;
+}
+.demo-crate-button:active {
+  transform: scale(0.985);
+}
+.demo-eq {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 20px;
+  flex-shrink: 0;
+}
+.demo-eq i {
+  width: 3px;
+  border-radius: 1px;
+  background: linear-gradient(to top, #22d3ee, #e879f9);
+  animation: demo-eq-bounce 0.9s ease-in-out infinite;
+  transform-origin: bottom;
+  height: 100%;
+}
+.demo-eq i:nth-child(1) { animation-delay: -0.2s; }
+.demo-eq i:nth-child(2) { animation-delay: -0.55s; }
+.demo-eq i:nth-child(3) { animation-delay: -0.1s; }
+.demo-eq i:nth-child(4) { animation-delay: -0.7s; }
+.demo-eq i:nth-child(5) { animation-delay: -0.35s; }
+@keyframes demo-eq-bounce {
+  0%, 100% { transform: scaleY(0.25); }
+  50% { transform: scaleY(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .demo-eq i { animation: none; transform: scaleY(0.6); }
+}

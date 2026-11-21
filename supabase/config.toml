@@ -22,10 +22,14 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.invidious-audio]
-verify_jwt = false
+# true to match the deployed setting — the client always sends the anon JWT.
+# Keeping this in sync means a CI deploy by name cannot silently open it up.
+verify_jwt = true
 
 [functions.yt-dlp-audio]
-verify_jwt = false
+# true to match the deployed setting — the client always sends the anon JWT.
+# Keeping this in sync means a CI deploy by name cannot silently open it up.
+verify_jwt = true
 
 [functions.track-cache]
 verify_jwt = false

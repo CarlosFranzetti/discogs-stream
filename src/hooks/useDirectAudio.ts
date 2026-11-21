@@ -3,7 +3,7 @@ import { supabase } from '@/integrations/supabase/client';
 
 interface DirectAudioResult {
   audioUrl: string;
-  source: 'invidious' | 'yt-dlp' | null;
+  source: 'invidious' | 'piped' | 'yt-dlp' | null;
   title?: string;
   author?: string;
 }
@@ -21,36 +21,26 @@ export function useDirectAudio() {
     setError(null);
 
     try {
-      const ytdlpResponse = await supabase.functions.invoke('yt-dlp-audio', {
-        body: { videoId: youtubeId },
-      });
-
-      if (ytdlpResponse.data?.success && ytdlpResponse.data?.audioUrl) {
-        setIsLoading(false);
+      // Both extractors are asked at once. On Supabase's hosted runtime
+      // yt-dlp-audio answers 501 immediately (no subprocesses), so running
+      // them one after the other only added a round trip before the function
+      // that can actually succeed. Whichever returns a stream first wins.
+      const ask = async (fn: 'yt-dlp-audio' | 'invidious-audio'): Promise<DirectAudioResult> => {
+        const { data } = await supabase.functions.invoke(fn, { body: { videoId: youtubeId } });
+        if (!data?.success || !data?.audioUrl) throw new Error(`${fn}: no stream`);
         return {
-          audioUrl: ytdlpResponse.data.audioUrl,
-          source: 'yt-dlp',
-          title: ytdlpResponse.data.title,
+          audioUrl: data.audioUrl,
+          // invidious-audio reports which network served it ('invidious' | 'piped')
+          source: fn === 'yt-dlp-audio' ? 'yt-dlp' : data.source === 'piped' ? 'piped' : 'invidious',
+          title: data.title,
+          author: data.author,
         };
-      }
+      };
 
-      const invidiousResponse = await supabase.functions.invoke('invidious-audio', {
-        body: { videoId: youtubeId },
-      });
-
-      if (invidiousResponse.data?.success && invidiousResponse.data?.audioUrl) {
-        setIsLoading(false);
-        return {
-          audioUrl: invidiousResponse.data.audioUrl,
-          source: 'invidious',
-          title: invidiousResponse.data.title,
-          author: invidiousResponse.data.author,
-        };
-      }
-
-      setError('Could not extract direct audio URL');
+      const result = await Promise.any([ask('yt-dlp-audio'), ask('invidious-audio')]).catch(() => null);
+      if (!result) setError('Could not extract direct audio URL');
       setIsLoading(false);
-      return null;
+      return result;
 
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error');
